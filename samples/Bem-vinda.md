@@ -1,6 +1,6 @@
 # Bem-vinda ao Folio
 
-Um leitor de **Markdown** simples, com *ênfase*, `código inline` e [[Outra nota]] no estilo Obsidian.
+Um leitor de **Markdown** simples, com *ênfase*, `código inline` e um link para [[Outra nota]].
 
 ## Lista de tarefas
 

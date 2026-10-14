@@ -40,7 +40,7 @@ namespace Sustenido
 
             using (var instance = new SingleInstance())
             {
-                // Like Notepad: a second launch becomes a new tab in the window that is already open.
+                // A second launch becomes a new tab in the window that is already open.
                 if (!instance.IsPrimary && instance.TryForward(files)) return;
                 var form = new MainForm(files, primary: instance.IsPrimary);
                 if (instance.IsPrimary)
@@ -235,7 +235,7 @@ namespace Sustenido
             }
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
-            core.Settings.IsZoomControlEnabled = false; // the app zooms text itself, like Notepad
+            core.Settings.IsZoomControlEnabled = false; // the app zooms the text itself, not the whole page
             core.Settings.IsGeneralAutofillEnabled = false;
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.SetVirtualHostNameToFolderMapping(AppHost, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web"), CoreWebView2HostResourceAccessKind.Deny);
@@ -555,7 +555,7 @@ namespace Sustenido
             }
             if (IsNote(target) && root != null)
             {
-                // Obsidian resolves [[Nota]] anywhere in the vault, not only next to the current note.
+                // [[Nota]] resolves anywhere under the notes folder, not only next to the current note.
                 var found = File.Exists(Path.Combine(root, relative)) ? Path.Combine(root, relative) : FindByName(root, Path.GetFileName(relative));
                 if (found != null) return new { path = found };
             }
@@ -685,7 +685,7 @@ namespace Sustenido
             switch (format)
             {
                 case "pdf": filter = "PDF (*.pdf)|*.pdf"; break;
-                case "docx": filter = "Documento do Word (*.docx)|*.docx"; break;
+                case "docx": filter = "Documento DOCX (*.docx)|*.docx"; break;
                 case "html": filter = "Página da web (*.html)|*.html"; break;
                 default: format = "md"; filter = "Markdown (*.md)|*.md"; break;
             }

@@ -14,7 +14,7 @@
     <DisplayName>Sustenido - Edição Markdown Visual</DisplayName>
     <PublisherDisplayName>{PUBLISHER_DISPLAY_NAME}</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
-    <Description>Leitor e editor de Markdown com formatação visual, abas, pasta de notas, fórmulas, diagramas e exportação para PDF, Word e HTML.</Description>
+    <Description>Leitor e editor de Markdown com formatação visual, abas, pasta de notas, fórmulas, diagramas e exportação para PDF, DOCX e HTML.</Description>
   </Properties>
 
   <Dependencies>

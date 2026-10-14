@@ -1,4 +1,4 @@
-// Obsidian-style Live Preview for CodeMirror 6.
+// Live Preview for CodeMirror 6: Markdown rendered in place while editing.
 // The document text is never rewritten by rendering: formatting is purely visual (decorations),
 // and markup reappears on whichever element the cursor touches. The only edits come from
 // explicit user gestures (ticking a checkbox, dragging an image's resize handle).

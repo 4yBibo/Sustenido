@@ -47,6 +47,8 @@ if ($Uninstall) {
 
 # Build (the csproj bundles the web UI first) and install.
 $out = Join-Path $PSScriptRoot 'bin\out'
+# Release package: the app sits next to this script and there is nothing to build.
+if (Test-Path (Join-Path $PSScriptRoot 'Sustenido.exe')) { $out = $PSScriptRoot; $NoBuild = $true }
 if (-not $NoBuild) {
     dotnet build (Join-Path $PSScriptRoot 'Sustenido.csproj') -c Release -o $out --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw 'Falha no build.' }

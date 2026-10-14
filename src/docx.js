@@ -1,4 +1,4 @@
-// Markdown → native .docx (real Word document, not HTML renamed to .doc).
+// Markdown → native .docx (a real Office Open XML document, not HTML renamed to .doc).
 import {
   AlignmentType, BorderStyle, Document, ExternalHyperlink, HeadingLevel, LevelFormat,
   Packer, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType,
@@ -10,7 +10,7 @@ const MONO = 'Consolas';
 const ACCENT = '5E5CE6';
 const shade = fill => ({ type: ShadingType.CLEAR, color: 'auto', fill });
 
-// marked keeps HTML entities in some token texts; Word needs the literal characters.
+// marked keeps HTML entities in some token texts; .docx needs the literal characters.
 const decode = s => s.replace(/&(amp|lt|gt|quot|#39);/g, (_, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" })[e]);
 
 function inline(tokens = [], style = {}) {

@@ -1,4 +1,4 @@
-// CodeMirror setup (Live Preview, search, Notepad keys) and Markdown formatting commands.
+// CodeMirror setup (Live Preview, search, Windows text-editor keys) and Markdown formatting commands.
 import { Compartment, EditorSelection, EditorState, Prec } from '@codemirror/state';
 import { EditorView, drawSelection, dropCursor, highlightActiveLine, highlightSpecialChars, keymap, placeholder } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -22,7 +22,7 @@ const PHRASES = {
 const BRACKETS = ['(', '[', '{', "'", '"'];
 const MD_PAIRS = ['*', '_', '`', '~', '='];
 
-// Tables, Typora-style: Enter on "| a | b |" creates the header rule and a first row; Enter at the end of a body
+// Quick tables: Enter on "| a | b |" creates the header rule and a first row; Enter at the end of a body
 // row adds a row; Tab / Shift+Tab move between cells.
 const TABLE_ROW = /^\s*\|.*\|\s*$/;
 const TABLE_RULE = /^\s*\|[\s:|-]*\|\s*$/;
@@ -89,7 +89,7 @@ export function createEditor({ parent, preview, onDocChange, onSelection, onFile
     EditorState.phrases.of(PHRASES),
     search({ top: true }),
     highlightSelectionMatches(),
-    // Notepad bindings win over CodeMirror's defaults (Ctrl+G is "go to line", not "find next").
+    // Windows text-editor bindings win over CodeMirror's defaults (Ctrl+G is "go to line", not "find next").
     Prec.high(keymap.of([
       { key: 'Mod-h', run: openSearchPanel },
       { key: 'Mod-g', run: gotoLine },

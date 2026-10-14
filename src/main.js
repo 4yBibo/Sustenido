@@ -140,7 +140,7 @@ async function openPath(path) {
   if (tab) place(tab);
 }
 
-/** Obsidian-style navigation: a link opens inside the current tab (unless it has unsaved edits). */
+/** A link opens inside the current tab (unless it has unsaved edits). */
 async function openInPlace(path) {
   const current = active;
   if (current.dirty) return openPath(path); // never discard edits: unsaved notes keep their tab
@@ -244,7 +244,7 @@ async function saveAll() {
   }
 }
 
-/** Notepad's prompt for one dirty tab. Resolves false if the user cancels. */
+/** Save/discard/cancel prompt for one dirty tab. Resolves false if the user cancels. */
 async function settleTab(tab) {
   if (!tab.dirty) return true;
   activate(tab);
@@ -257,7 +257,7 @@ async function closeTab(tab) {
   if (!(await settleTab(tab))) return;
   const i = tabs.indexOf(tab);
   tabs.splice(i, 1);
-  if (!tabs.length) return closeWindow(); // like Notepad, closing the last tab closes the window
+  if (!tabs.length) return closeWindow(); // closing the last tab closes the window
   if (active === tab) {
     active = null;
     activate(tabs[Math.min(i, tabs.length - 1)]);
@@ -288,7 +288,7 @@ async function closeWindow() {
   call('closeWindow');
 }
 
-// ── Session (Notepad's "continue where you left off") ─
+// ── Session ("continue where you left off") ─────────
 
 let sessionTimer;
 function snapshot() {
@@ -361,7 +361,7 @@ function renderTabs() {
   updateTabScroll();
 }
 
-// With many tabs the strip scrolls: arrows at both ends (like Notepad) and a list of every open tab.
+// With many tabs the strip scrolls: arrows at both ends and a list of every open tab.
 function updateTabScroll() {
   const strip = $('tabs');
   const overflow = strip.scrollWidth > strip.clientWidth + 1;
@@ -593,7 +593,7 @@ async function paste() {
   editor.view.focus();
 }
 
-// Markdown for plain-text targets, rendered HTML for rich ones (Word, Gmail, Notion).
+// Markdown for plain-text targets, rendered HTML for rich ones (documents, e-mail).
 async function copyAll() {
   const md = text();
   try {
@@ -703,7 +703,7 @@ const MENUS = {
     { label: 'Salvar tudo', kbd: 'Ctrl+Alt+S', run: saveAll },
     '-',
     { label: 'Exportar como PDF…', run: () => exportAs('pdf') },
-    { label: 'Exportar como Word…', run: () => exportAs('docx') },
+    { label: 'Exportar como DOCX…', run: () => exportAs('docx') },
     { label: 'Exportar como HTML…', run: () => exportAs('html') },
     { label: 'Exportar cópia em Markdown…', run: () => exportAs('md') },
     { label: 'Imprimir…', kbd: 'Ctrl+P', run: print },
@@ -764,7 +764,7 @@ const MENUS = {
   ],
   export: () => [
     { label: 'PDF', kbd: '.pdf', run: () => exportAs('pdf') },
-    { label: 'Word', kbd: '.docx', run: () => exportAs('docx') },
+    { label: 'Documento', kbd: '.docx', run: () => exportAs('docx') },
     { label: 'Página da web', kbd: '.html', run: () => exportAs('html') },
     { label: 'Markdown', kbd: '.md', run: () => exportAs('md') },
     '-',

@@ -13,10 +13,10 @@ Que bom ter você aqui. O **Sustenido** abre e edita arquivos Markdown com a for
 
 ## O que mais dá para fazer
 
-- [x] Abas, como no Bloco de Notas — `Ctrl+Tab` alterna entre elas
+- [x] Abas — `Ctrl+Tab` alterna entre elas
 - [ ] Links entre notas com `[[Nome da nota]]`
 - [ ] Fórmulas como $E = mc^2$ e diagramas Mermaid
-- [ ] Exportar para PDF, Word ou HTML no botão de compartilhar
+- [ ] Exportar para PDF, DOCX ou HTML no botão de compartilhar
 - [ ] Mudar cor de destaque, tamanho do texto e tema em *Configurações* (`Ctrl+,`)
 
 > Esta nota não é salva automaticamente. Feche a aba quando terminar — ou salve com `Ctrl+S` para guardar uma cópia.

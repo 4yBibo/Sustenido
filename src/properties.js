@@ -1,4 +1,4 @@
-// YAML frontmatter → Obsidian-style Properties panel (icon + key, values as tinted chips).
+// YAML frontmatter → Properties panel (icon + key, values as tinted chips).
 import { parse } from 'yaml';
 import DOMPurify from 'dompurify';
 import { marked, wikiHref } from './markdown.js';

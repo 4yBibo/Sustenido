@@ -1,4 +1,4 @@
-// Shared Markdown dialect: GFM + Obsidian wikilinks/embeds + image sizing + KaTeX math.
+// Shared Markdown dialect: GFM + [[wikilinks]]/embeds + image sizing + KaTeX math.
 import { marked } from 'marked';
 import katex from 'katex';
 
@@ -6,7 +6,7 @@ export const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 
 export const wikiHref = target => encodeURI(/\.md$/i.test(target.split('#')[0]) ? target : target.replace(/(#|$)/, '.md$1'));
 
-// Obsidian sizing: "alt|300" or "alt|300x200".
+// Image sizing in the alt text: "alt|300" or "alt|300x200".
 export function parseImageAlt(alt) {
   const m = /^(.*?)\|(\d+)(?:x(\d+))?$/.exec(alt);
   return m ? { alt: m[1], width: +m[2], height: m[3] ? +m[3] : undefined } : { alt };
@@ -27,7 +27,7 @@ export const MARK_COLORS = [
   { id: '#f472b6', name: 'Rosa' }, { id: '#fb923c', name: 'Laranja' }, { id: '#a78bfa', name: 'Lilás' }, { id: '#f87171', name: 'Vermelho' },
 ];
 
-// Colored text, Obsidian-compatible: <span style="color: #e5484d">texto</span>. Only plain color values are accepted.
+// Colored text as plain HTML, readable by any Markdown tool: <span style="color: #e5484d">texto</span>. Only plain color values are accepted.
 export const COLOR_SPAN = /<span style="color:\s*(#[0-9a-fA-F]{3,8}|[a-zA-Z]+);?">([^<\n]*)<\/span>/g;
 export const TEXT_COLORS = [
   { id: '#e5484d', name: 'Vermelho' }, { id: '#f2711c', name: 'Laranja' }, { id: '#d9a404', name: 'Amarelo' },

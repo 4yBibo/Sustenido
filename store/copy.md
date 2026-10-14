@@ -19,7 +19,7 @@ Cada título vai sobre um print real do app, com o texto da nota também sendo c
 | 3 | Leve de verdade. | 16 MB em disco. Abre em menos de 2 segundos. | Janela limpa, abas abertas |
 | 4 | Fórmulas, diagramas e tabelas. | LaTeX, Mermaid e código com destaque, sem sair do texto. | Nota "Plano de lançamento" e "Física, anotações" |
 | 5 | Do seu jeito. | Tema claro ou escuro, 20 cores de destaque, efeito de vidro. | Tema claro com cor diferente |
-| 6 | Do rascunho ao arquivo final. | Exporte para PDF, Word e HTML. Tudo offline. | Menu de exportar |
+| 6 | Do rascunho ao arquivo final. | Exporte para PDF, DOCX e HTML. Tudo offline. | Menu de exportar |
 
 Alternativas de título 1: "O texto em primeiro lugar." / "Veja o que você escreve, enquanto escreve."
 
@@ -56,7 +56,7 @@ ORGANIZAR
 • Modo foco e modo máquina de escrever
 
 EXPORTAR E IMPORTAR
-• PDF, Word (.docx), HTML e Markdown
+• PDF, DOCX, HTML e Markdown
 • Importa HTML e PDF como Markdown
 • Copia a nota formatada para colar em e-mails e documentos
 

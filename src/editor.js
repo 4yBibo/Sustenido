@@ -1,13 +1,14 @@
 // CodeMirror setup (Live Preview, search, Notepad keys) and Markdown formatting commands.
 import { Compartment, EditorSelection, EditorState, Prec } from '@codemirror/state';
-import { EditorView, drawSelection, dropCursor, highlightSpecialChars, keymap, placeholder } from '@codemirror/view';
+import { EditorView, drawSelection, dropCursor, highlightActiveLine, highlightSpecialChars, keymap, placeholder } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { gotoLine, highlightSelectionMatches, openSearchPanel, search, searchKeymap } from '@codemirror/search';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { classHighlighter, tags } from '@lezer/highlight';
-import { Highlight, livePreview, refreshPreview } from './livepreview.js';
+import { Highlight, livePreview, refreshPreview, setFocus } from './livepreview.js';
 
 const PHRASES = {
   Find: 'Localizar', Replace: 'Substituir', next: 'próximo', previous: 'anterior', all: 'todos',
@@ -17,16 +18,72 @@ const PHRASES = {
   'on line': 'na linha', 'Go to line': 'Ir para a linha', go: 'ir',
 };
 
+const BRACKETS = ['(', '[', '{', "'", '"'];
+const MD_PAIRS = ['*', '_', '`', '~', '='];
+
+// Tables, Typora-style: Enter on "| a | b |" creates the header rule and a first row; Enter at the end of a body
+// row adds a row; Tab / Shift+Tab move between cells.
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+const TABLE_RULE = /^\s*\|[\s:|-]*\|\s*$/;
+const columns = text => text.trim().slice(1, -1).split('|').length;
+
+function tableEnter(view) {
+  const { state } = view;
+  const { head, empty } = state.selection.main;
+  if (!empty) return false;
+  const line = state.doc.lineAt(head);
+  if (head !== line.to || !TABLE_ROW.test(line.text) || TABLE_RULE.test(line.text)) return false;
+  const next = line.number < state.doc.lines ? state.doc.line(line.number + 1).text : '';
+  const prev = line.number > 1 ? state.doc.line(line.number - 1).text : '';
+  const row = '|' + '  |'.repeat(columns(line.text));
+  const insert = TABLE_RULE.test(next) || TABLE_RULE.test(prev) || TABLE_ROW.test(prev)
+    ? `\n${row}` // inside a table: new body row
+    : `\n|${' --- |'.repeat(columns(line.text))}\n${row}`; // lone header line: make it a table
+  view.dispatch({ changes: { from: line.to, insert }, selection: { anchor: line.to + insert.length - row.length + 2 }, userEvent: 'input' });
+  return true;
+}
+
+function tableTab(forward) {
+  return view => {
+    const { state } = view;
+    const { head } = state.selection.main;
+    const line = state.doc.lineAt(head);
+    if (!TABLE_ROW.test(line.text)) return false;
+    const col = head - line.from;
+    const bars = [...line.text.matchAll(/\|/g)].map(m => m.index);
+    const target = forward ? bars.find(b => b > col) : [...bars].reverse().find(b => b < col - 1);
+    if (target == null || (forward && target === bars[bars.length - 1])) return false;
+    const cell = forward ? target + 1 : (bars[bars.indexOf(target) - 1] ?? -1) + 1;
+    const content = line.text.slice(cell, forward ? (bars.find(b => b > target) ?? line.length) : target);
+    const start = cell + (content.match(/^\s*/)[0].length);
+    const end = cell + content.replace(/\s+$/, '').length;
+    view.dispatch({ selection: { anchor: line.from + start, head: line.from + Math.max(start, end) } });
+    return true;
+  };
+}
+
 export function createEditor({ parent, preview, onDocChange, onSelection, onFiles, onImages }) {
   const wrap = new Compartment();
   const spell = new Compartment();
-  const config = { wrap: true, spellcheck: true };
+  const pairs = new Compartment();
+  const config = { wrap: true, spellcheck: true, autoPairMd: true, typewriter: false };
+  const pairConfig = () => markdownLanguage.data.of({ closeBrackets: { brackets: config.autoPairMd ? [...BRACKETS, ...MD_PAIRS] : BRACKETS } });
+
+  let centering = 0;
+  const typewriter = EditorView.updateListener.of(u => {
+    if (!config.typewriter || !(u.selectionSet || u.docChanged) || !u.transactions.some(t => t.isUserEvent('input') || t.isUserEvent('select') || t.isUserEvent('delete'))) return;
+    cancelAnimationFrame(centering);
+    centering = requestAnimationFrame(() => u.view.dispatch({ effects: EditorView.scrollIntoView(u.view.state.selection.main.head, { y: 'center' }) }));
+  });
 
   const base = [
     history(),
     drawSelection(),
     dropCursor(),
     highlightSpecialChars(),
+    highlightActiveLine(),
+    closeBrackets(),
+    typewriter,
     EditorState.allowMultipleSelections.of(true),
     EditorState.phrases.of(PHRASES),
     search({ top: true }),
@@ -35,8 +92,10 @@ export function createEditor({ parent, preview, onDocChange, onSelection, onFile
     Prec.high(keymap.of([
       { key: 'Mod-h', run: openSearchPanel },
       { key: 'Mod-g', run: gotoLine },
+      { key: 'Enter', run: tableEnter },
+      { key: 'Tab', run: tableTab(true), shift: tableTab(false) },
     ])),
-    keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+    keymap.of([...closeBracketsKeymap, ...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
     markdown({ base: markdownLanguage, codeLanguages: languages, extensions: [Highlight] }),
     syntaxHighlighting(classHighlighter),
     syntaxHighlighting(HighlightStyle.define([{ tag: tags.processingInstruction, class: 'cm-lp-markup' }])),
@@ -83,6 +142,7 @@ export function createEditor({ parent, preview, onDocChange, onSelection, onFile
   const dynamic = () => [
     wrap.of(config.wrap ? EditorView.lineWrapping : []),
     spell.of(EditorView.contentAttributes.of({ spellcheck: String(config.spellcheck), 'aria-label': 'Editor de Markdown' })),
+    pairs.of(pairConfig()),
   ];
 
   const view = new EditorView({ parent, state: EditorState.create({ extensions: [base, dynamic()] }) });
@@ -90,6 +150,11 @@ export function createEditor({ parent, preview, onDocChange, onSelection, onFile
   return {
     view,
     createState: doc => EditorState.create({ doc, extensions: [base, dynamic()] }),
+    /** Swaps in a tab's state and tells it whether the editor is focused (no focus event fires for a swap). */
+    setState(state) {
+      view.setState(state);
+      view.dispatch({ effects: setFocus.of(view.hasFocus) });
+    },
     /** Re-applies wrap/spellcheck — also needed after swapping in another tab's state. */
     configure(next = {}) {
       Object.assign(config, next);
@@ -97,6 +162,7 @@ export function createEditor({ parent, preview, onDocChange, onSelection, onFile
         effects: [
           wrap.reconfigure(config.wrap ? EditorView.lineWrapping : []),
           spell.reconfigure(EditorView.contentAttributes.of({ spellcheck: String(config.spellcheck), 'aria-label': 'Editor de Markdown' })),
+          pairs.reconfigure(pairConfig()),
         ],
       });
     },
@@ -199,6 +265,59 @@ export function setTextColor(view, color) {
     };
   }), { userEvent: 'input.format' });
   view.focus();
+}
+
+const MARK_OPEN = /<mark style="background(?:-color)?:\s*(?:#[0-9a-fA-F]{3,8}|[a-zA-Z]+);?">$/;
+
+/** Highlights each selection: null = ==default color==, otherwise <mark style="background: color">. */
+export function setHighlight(view, color) {
+  if (!color) return toggleInline(view, '==');
+  const { state } = view;
+  view.dispatch(state.changeByRange(range => {
+    const before = state.sliceDoc(state.doc.lineAt(range.from).from, range.from);
+    const open = MARK_OPEN.exec(before);
+    const closed = state.sliceDoc(range.to, range.to + 7) === '</mark>';
+    const tag = `<mark style="background: ${color}">`;
+    if (open && closed) { // recolor in place
+      const start = range.from - open[0].length;
+      return { changes: { from: start, to: range.from, insert: tag }, range: EditorSelection.range(start + tag.length, start + tag.length + (range.to - range.from)) };
+    }
+    if (range.empty) return { range };
+    return {
+      changes: [{ from: range.from, insert: tag }, { from: range.to, insert: '</mark>' }],
+      range: EditorSelection.range(range.from + tag.length, range.to + tag.length),
+    };
+  }), { userEvent: 'input.format' });
+  view.focus();
+}
+
+/** Headings of the document, for the outline panel. */
+export function outline(state) {
+  const items = [];
+  syntaxTree(state).iterate({
+    enter(n) {
+      const m = /^(?:ATX|Setext)Heading(\d)$/.exec(n.name);
+      if (!m) return;
+      const line = state.doc.lineAt(n.from);
+      items.push({ level: +m[1], text: line.text.replace(/^#+\s*|\s*#+$/g, '').replace(/[*_`=~]/g, '').trim() || '(sem título)', pos: line.from });
+      return false;
+    },
+  });
+  return items;
+}
+
+/** Counts shown in the status bar popover. */
+export function stats(state) {
+  const text = state.doc.toString();
+  const words = text.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+  return {
+    words,
+    chars: text.length,
+    charsNoSpace: text.replace(/\s/g, '').length,
+    lines: state.doc.lines,
+    paragraphs: text.split(/\n\s*\n/).filter(p => p.trim()).length,
+    minutes: Math.max(1, Math.round(words / 200)),
+  };
 }
 
 export function insertLink(view) {

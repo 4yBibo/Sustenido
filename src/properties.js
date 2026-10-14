@@ -76,5 +76,7 @@ export function renderProperties(yamlText) {
 /** Full note → sanitized HTML (properties panel + body). Notes are untrusted input. */
 export function renderHtml(md) {
   const { yaml, body } = splitFrontmatter(md);
-  return DOMPurify.sanitize((yaml != null ? renderProperties(yaml) : '') + marked.parse(body));
+  return DOMPurify.sanitize((yaml != null ? renderProperties(yaml) : '') + marked.parse(body))
+    // Colored highlights keep the soft "marker" look instead of a solid fill (the CSS mixes --mark).
+    .replace(/<mark style="background(?:-color)?:\s*(#[0-9a-fA-F]{3,8}|[a-zA-Z]+);?">/g, '<mark style="--mark: $1">');
 }

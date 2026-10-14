@@ -6,7 +6,7 @@ import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { StateEffect, StateField } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import { BLOCK_MATH, COLOR_SPAN, IMAGE_EXT, INLINE_MATH, parseImageAlt, renderMath, wikiHref } from './markdown.js';
+import { BLOCK_MATH, COLOR_SPAN, FN_DEF, FN_REF, IMAGE_EXT, MARK_SPAN, INLINE_MATH, parseImageAlt, renderMath, wikiHref } from './markdown.js';
 import { FRONTMATTER } from './properties.js';
 
 const WIKILINK = /(!?)\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g;
@@ -62,10 +62,11 @@ class ImageWidget extends WidgetType {
   // resize: { from, to, format(width) } — the text span that stores the size, or null.
   constructor(src, alt, width, height, resize) {
     super();
-    Object.assign(this, { src, alt, width, height, resize });
+    // The base is part of the identity: when the note's folder changes (first save), the widget is rebuilt.
+    Object.assign(this, { src, alt, width, height, resize, base: globalThis.document?.baseURI ?? '' });
   }
   eq(o) {
-    return o.src === this.src && o.alt === this.alt && o.width === this.width
+    return o.src === this.src && o.base === this.base && o.alt === this.alt && o.width === this.width
       && o.height === this.height && o.resize?.from === this.resize?.from;
   }
   toDOM(view) {
@@ -74,7 +75,7 @@ class ImageWidget extends WidgetType {
     const img = document.createElement('img');
     img.className = 'cm-lp-img';
     img.alt = this.alt;
-    img.src = new URL(this.src, document.baseURI).href;
+    img.src = new URL(this.src, this.base).href;
     if (this.width) img.style.width = `${this.width}px`;
     if (this.height) img.style.height = `${this.height}px`;
     wrap.append(img);
@@ -234,6 +235,26 @@ export function buildDecorations(state, focused, opts = {}) {
     mark(from + open, to - close, { attributes: { style: `color: ${m[1]}` } });
   }
 
+  for (const m of text.matchAll(MARK_SPAN)) {
+    const from = m.index, to = from + m[0].length;
+    if (isClaimed(from, to) || /Code/.test(tree.resolveInner(from, 1).name)) continue;
+    const open = m[0].indexOf('>') + 1, close = '</mark>'.length;
+    if (touches(from, to)) { mark(from, from + open, { class: 'cm-lp-markup' }); mark(to - close, to, { class: 'cm-lp-markup' }); }
+    else { hide(from, from + open); hide(to - close, to); }
+    mark(from + open, to - close, { class: 'cm-lp-highlight', attributes: { style: `--mark: ${m[1]}` } });
+  }
+
+  // Footnotes: references become small superscripts; definition lines are set smaller and muted.
+  for (const m of text.matchAll(FN_REF)) {
+    if (isClaimed(m.index, m.index + m[0].length) || inCode(m.index)) continue;
+    mark(m.index, m.index + m[0].length, { class: 'cm-lp-fnref' });
+  }
+  for (let pos = 0; pos < doc.length;) {
+    const line = doc.lineAt(pos);
+    if (FN_DEF.test(line.text) && !inCode(line.from)) lines(line.from, line.from, 'cm-lp-fndef');
+    pos = line.to + 1;
+  }
+
   const skip = (from, to) => claimed.some(([a, b]) => from >= a && to <= b);
 
   tree.iterate({
@@ -350,7 +371,8 @@ export function buildDecorations(state, focused, opts = {}) {
   return Decoration.set(out, true);
 }
 
-const setFocus = StateEffect.define();
+/** Whether the editor has focus; a fresh state (new tab) must be told, since no focus event fires. */
+export const setFocus = StateEffect.define();
 /** Dispatch to re-render widgets whose look depends on outside state (e.g. the theme). */
 export const refreshPreview = StateEffect.define();
 

@@ -22,7 +22,10 @@
     </div>
 
     <header class="chrome">
+      <button id="tabs-prev" class="icon tabs-scroll" type="button" aria-label="Abas anteriores" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12 5l-5 5 5 5"/></svg></button>
       <div id="tabs" class="tabs" role="tablist" aria-label="Notas abertas"></div>
+      <button id="tabs-next" class="icon tabs-scroll" type="button" aria-label="Próximas abas" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5l5 5-5 5"/></svg></button>
+      <button id="tabs-list" class="icon" type="button" title="Todas as abas" aria-label="Todas as abas" data-menu="tabs" aria-haspopup="menu" aria-expanded="false" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg></button>
       <button id="new-tab" class="icon" type="button" title="Nova aba (Ctrl+N)" aria-label="Nova aba"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg></button>
       <nav class="menus" aria-label="Menu">
         <button type="button" data-menu="file" aria-haspopup="menu" aria-expanded="false">Arquivo</button>
@@ -52,7 +55,12 @@
           <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="3" class="fill-soft"/><path d="M8 3.5v13"/></svg>
         </button>
       </div>
+      <div class="side-tabs" role="tablist" aria-label="Painel lateral">
+        <button type="button" role="tab" data-view="tree" aria-selected="true">Notas</button>
+        <button type="button" role="tab" data-view="outline" aria-selected="false" title="Títulos desta nota (Ctrl+Shift+O)">Estrutura</button>
+      </div>
       <nav id="tree" class="tree" role="tree" aria-label="Notas"></nav>
+      <nav id="outline" class="tree outline" aria-label="Estrutura da nota" hidden></nav>
     </aside>
 
     <main id="card" class="card">
@@ -81,9 +89,9 @@
       </div>
 
       <footer class="status" aria-label="Barra de status">
-        <span id="st-pos"></span>
-        <span id="st-words"></span>
-        <span id="st-chars"></span>
+        <span id="st-pos" class="st"></span>
+        <button id="st-words" class="st" type="button" data-menu="counts" aria-haspopup="menu" aria-expanded="false"></button>
+        <span id="st-chars" class="st"></span>
         <span class="status-gap"></span>
         <button id="st-zoom" type="button" title="Zoom do texto — clique para voltar a 100% (Ctrl+0)"></button>
         <button id="st-eol" type="button" data-menu="eol" aria-haspopup="menu" aria-expanded="false" title="Quebra de linha — clique para alterar"></button>
@@ -97,8 +105,14 @@
     <span class="b-sep" aria-hidden="true"></span>
     <button type="button" id="b-bold" data-cmd="bold" data-tip="Negrito" aria-label="Negrito (Ctrl+B)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6.5 4h4.25a3 3 0 0 1 0 6H6.5zm0 6h5a3 3 0 0 1 0 6h-5z"/></svg></button>
     <button type="button" id="b-italic" data-cmd="italic" data-tip="Itálico" aria-label="Itálico (Ctrl+I)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8.5 4h6M5.5 16h6M11.5 4l-3 12"/></svg></button>
-    <button type="button" id="b-mark" data-cmd="mark" data-tip="Marca-texto" aria-label="Marca-texto (Ctrl+Shift+H)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M11.5 3.75l4.75 4.75-6.5 6.5H5v-4.75z"/><path d="M3.5 17h13" class="accent-stroke"/></svg></button>
-    <button type="button" id="b-color" class="b-color" data-menu="color" aria-haspopup="menu" aria-expanded="false" data-tip="Cor do texto" aria-label="Cor do texto"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 13.5L10 3.5l4 10M7.4 10h5.2"/></svg><span class="b-swatch" aria-hidden="true"></span></button>
+    <span class="b-split">
+      <button type="button" id="b-mark" class="b-color" data-cmd="mark" data-tip="Marca-texto" aria-label="Marca-texto (Ctrl+Shift+H)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M11.5 3.75l4.75 4.75-6.5 6.5H5v-4.75z"/></svg><span class="b-swatch b-swatch-mark" aria-hidden="true"></span></button>
+      <button type="button" class="b-more" data-menu="mark" aria-haspopup="menu" aria-expanded="false" aria-label="Cores do marca-texto"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg></button>
+    </span>
+    <span class="b-split">
+      <button type="button" id="b-color" class="b-color" data-cmd="color" data-tip="Cor do texto" aria-label="Cor do texto"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 13.5L10 3.5l4 10M7.4 10h5.2"/></svg><span class="b-swatch" aria-hidden="true"></span></button>
+      <button type="button" class="b-more" data-menu="color" aria-haspopup="menu" aria-expanded="false" aria-label="Cores do texto"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg></button>
+    </span>
     <button type="button" id="b-strike" data-cmd="strike" data-tip="Tachado" aria-label="Tachado (Ctrl+Shift+X)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12M13.25 6.25c-.5-1.4-1.75-2.25-3.4-2.25-2 0-3.35 1.05-3.35 2.6 0 1.35 1 2.05 2.5 2.4m2.5 2.2c1.5.45 2.25 1.2 2.25 2.4 0 1.6-1.45 2.65-3.6 2.65-1.9 0-3.25-.9-3.7-2.4"/></svg></button>
     <button type="button" id="b-code" data-cmd="code" data-tip="Código" aria-label="Código"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6l-4 4 4 4M13 6l4 4-4 4"/></svg></button>
     <span class="b-sep" aria-hidden="true"></span>

@@ -1,6 +1,8 @@
 // User preferences: defaults, persistence, application to the document, and the Settings sheet.
 
 import ACCENT_LIST from './accents.json';
+import { call } from './bridge.js';
+import { MARK_COLORS } from './markdown.js';
 
 // Each accent has a light-theme value (≥4.5:1 on white, safe for links) and a dark-theme value.
 // Shared with tools/make-icons.ps1, which tints the app icon to match each accent.
@@ -18,37 +20,44 @@ const DEFAULTS = {
   glass: true, readable: true, inlineTitle: true, wrap: true, spellcheck: true, statusBar: true,
   session: true, sidebar: true, mode: 'edit', root: null, expanded: [],
   markColor: 'theme', welcomed: false,
+  focus: false, typewriter: false, autoPairMd: true, outline: false,
 };
-
-const MARK_COLORS = [
-  { id: '#facc15', name: 'Amarelo' }, { id: '#4ade80', name: 'Verde' }, { id: '#60a5fa', name: 'Azul' },
-  { id: '#f472b6', name: 'Rosa' }, { id: '#fb923c', name: 'Laranja' }, { id: '#a78bfa', name: 'Lilás' }, { id: '#f87171', name: 'Vermelho' },
-];
 
 const SHORTCUTS = [
   ['Ler / editar', 'Ctrl+E'], ['Nova aba', 'Ctrl+N'], ['Abrir', 'Ctrl+O'], ['Salvar', 'Ctrl+S'],
   ['Localizar / substituir', 'Ctrl+F / Ctrl+H'], ['Ir para a linha', 'Ctrl+G'], ['Negrito / itálico', 'Ctrl+B / Ctrl+I'],
-  ['Marca-texto', 'Ctrl+Shift+H'], ['Link', 'Ctrl+K'], ['Emoji', 'Win+.'], ['Barra lateral', 'Ctrl+\\'],
+  ['Marca-texto', 'Ctrl+Shift+H'], ['Link', 'Ctrl+K'], ['Modo foco', 'F8'], ['Máquina de escrever', 'F9'], ['Estrutura', 'Ctrl+Shift+O'], ['Emoji', 'Win+.'], ['Barra lateral', 'Ctrl+\\'],
   ['Próxima aba', 'Ctrl+Tab'], ['Zoom', 'Ctrl+ + / Ctrl+ −'], ['Hora/data', 'F5'], ['Configurações', 'Ctrl+,'],
 ];
 
-const KEY = 'sustenido.settings';
-export const settings = (() => {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return { ...DEFAULTS }; }
-})();
+// Stored by the host in %LOCALAPPDATA%\Sustenido\settings.json and injected before this script runs.
+const stored = window.__sustenido?.settings;
+export const settings = { ...DEFAULTS, ...(stored ?? legacy()) };
+
+// shortcut: one-time import of the pre-1.0 localStorage settings, drop after the first release
+function legacy() {
+  try { return JSON.parse(localStorage.getItem('sustenido.settings') ?? 'null') ?? {}; } catch { return {}; }
+}
+
+let saveTimer;
+const save = () => call('writeSettings', { json: JSON.stringify(settings) }).catch(() => {});
+export function flushSettings() { clearTimeout(saveTimer); return save(); }
+if (!stored) setTimeout(save, 0);
 
 const listeners = [];
 export const onSettingsChange = fn => listeners.push(fn);
 
 export function update(patch) {
   Object.assign(settings, patch);
-  try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch { /* preferences are a convenience */ }
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 300);
   applySettings();
   for (const fn of listeners) fn(patch);
 }
 
 let glassAvailable = false;
 export const setGlassAvailable = value => { glassAvailable = value; applySettings(); };
+export const isGlass = () => glassAvailable && settings.glass;
 
 const systemDark = matchMedia('(prefers-color-scheme: dark)');
 export const isDark = () => settings.theme === 'dark' || (settings.theme === 'system' && systemDark.matches);
@@ -169,7 +178,7 @@ export function openSettings(dialog) {
       h('header', { className: 'sheet-head' },
         h('h2', { textContent: 'Configurações' }),
         h('button', { className: 'icon close', value: 'close', ariaLabel: 'Fechar', innerHTML: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg>' })),
-      h('div', { className: 'sheet-body' },
+      h('div', { className: 'sheet-body', tabIndex: -1 },
         h('section', {},
           h('h3', { textContent: 'Aparência' }),
           row('Tema', null, segmented('Tema', [
@@ -179,7 +188,7 @@ export function openSettings(dialog) {
             h('div', { className: 'set-label' }, h('span', { textContent: 'Cor de destaque' }), accentName),
             swatches),
           h('div', { className: 'set-row set-col' },
-            h('div', { className: 'set-label' }, h('span', { textContent: 'Cor do marca-texto' }), markName),
+            h('div', { className: 'set-label' }, h('span', { textContent: 'Cor padrão do marca-texto' }), markName),
             marks),
           row('Tamanho do texto', 'Também ajustável com Ctrl + e Ctrl −', h('div', { className: 'range-wrap' }, h('span', { className: 'aa small', textContent: 'A' }), size, h('span', { className: 'aa', textContent: 'A' }), sizeValue)),
           row('Fonte', null, segmented('Fonte', FONTS, settings.font, v => update({ font: v }))),
@@ -190,6 +199,7 @@ export function openSettings(dialog) {
           h('h3', { textContent: 'Editor' }),
           row('Quebra automática de linha', null, toggle('Quebra automática de linha', 'wrap')),
           row('Verificação ortográfica', null, toggle('Verificação ortográfica', 'spellcheck')),
+          row('Fechar * e _ automaticamente', 'Parênteses, colchetes e aspas fecham sempre', toggle('Fechar símbolos de Markdown', 'autoPairMd')),
           row('Barra de status', null, toggle('Barra de status', 'statusBar'))),
         h('section', {},
           h('h3', { textContent: 'Ao iniciar o Sustenido' }),
@@ -204,4 +214,5 @@ export function openSettings(dialog) {
           h('h3', { textContent: 'Sobre' }),
           h('p', {}, h('span', { className: 'wordmark about-word', textContent: 'Sustenido' }), h('span', { textContent: ' — Edição Markdown Visual · versão 1.0' }))))));
   dialog.showModal();
+  dialog.querySelector('.sheet-body').focus(); // not the close button
 }

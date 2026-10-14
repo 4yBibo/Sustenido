@@ -24,6 +24,10 @@ namespace Sustenido
         [STAThread]
         static void Main(string[] args)
         {
+            MainForm.Boot = Stopwatch.StartNew();
+            Directory.CreateDirectory(MainForm.DataDir);
+            // The browser runtime is the slowest part of startup: launch it first and overlap it with WinForms init.
+            MainForm.EnvTask = CoreWebView2Environment.CreateAsync(null, Path.Combine(MainForm.DataDir, "WebView2"));
             var files = args.Where(a => !a.StartsWith("--")).Select(Path.GetFullPath).ToArray();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
@@ -117,18 +121,25 @@ namespace Sustenido
         const string AppHost = "sustenido.app";
         static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         static readonly Encoding StrictUtf8 = new UTF8Encoding(false, true);
-        static readonly string DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Sustenido");
+        public static readonly string DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Sustenido");
         static readonly string SessionFile = Path.Combine(DataDir, "session.json");
+        static readonly string SettingsFile = Path.Combine(DataDir, "settings.json");
+        public static Stopwatch Boot;
+        public static Task<CoreWebView2Environment> EnvTask;
         static readonly string[] ImageExt = { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".avif" };
         static readonly string[] OpenableExt = { ".md", ".markdown", ".txt", ".html", ".htm", ".pdf" };
 
         readonly WebView2 web = new WebView2 { Dock = DockStyle.Fill };
         readonly Dictionary<string, Func<Dictionary<string, object>, Task<object>>> handlers;
-        readonly Dictionary<string, string> folderHosts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Note folders are served by the host itself (WebResourceRequested) as https://docs.sustenido.app/<index>/...
+        const string DocHost = "docs.sustenido.app";
+        readonly List<string> docFolders = new List<string>();
         readonly string[] launchFiles;
+        readonly string settingsJson;
         // Acrylic needs Windows 11 22H2+ and the user's "Transparency effects" switch.
-        readonly bool glass = Environment.OSVersion.Version.Build >= 22621 && TransparencyEnabled();
-        bool dark = IsSystemDark(), pageLoaded, closeApproved;
+        readonly bool osGlass = Environment.OSVersion.Version.Build >= 22621 && TransparencyEnabled();
+        readonly StringBuilder bootLog = new StringBuilder();
+        bool dark, glass, pageLoaded, closeApproved;
         DateTime closeRequested;
 
         public bool Primary { get; }
@@ -137,19 +148,33 @@ namespace Sustenido
         {
             launchFiles = files;
             Primary = primary;
+            // Settings are read before the window exists, so it opens in the right theme, color and icon — no flash.
+            var prefs = LoadSettings();
+            settingsJson = prefs.Count > 0 ? Json.Serialize(prefs) : "null"; // null = first run: the page seeds the file
+            var theme = prefs.TryGetValue("theme", out var t) ? t as string : null;
+            dark = theme == "dark" || (theme != "light" && IsSystemDark());
+            glass = osGlass && !(prefs.TryGetValue("glass", out var g) && g is bool wantGlass && !wantGlass);
             Text = "Sustenido";
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            SetAccentIcon(prefs.TryGetValue("accent", out var accent) ? accent as string : null);
             var area = Screen.PrimaryScreen.WorkingArea;
             Size = new Size((int)(area.Width * 0.62), (int)(area.Height * 0.86));
             MinimumSize = new Size(560, 420);
             StartPosition = FormStartPosition.CenterScreen;
-            BackColor = glass ? Color.Black : SolidBackground();
-            web.DefaultBackgroundColor = glass ? Color.Transparent : BackColor;
+            ApplyChrome(dark, glass, null);
             Controls.Add(web);
 
             handlers = new Dictionary<string, Func<Dictionary<string, object>, Task<object>>>
             {
-                ["init"] = m => Done(new { primary = Primary, glass, session = Primary ? ReadSession() : null, files = launchFiles }),
+                ["init"] = m => Done(new { primary = Primary, glass = osGlass, session = Primary ? ReadSession() : null, files = launchFiles }),
+                ["writeSettings"] = m => { WriteAtomic(SettingsFile, Encoding.UTF8.GetBytes(Str(m, "json") ?? "{}")); return Done(null); },
+                ["ready"] = m =>
+                {
+                    Mark("ready");
+                    bootLog.Append("js ").Append(m.TryGetValue("js", out var js) ? js : "?").Append("ms");
+                    try { File.WriteAllText(Path.Combine(DataDir, "startup.log"), bootLog.ToString()); } catch (IOException) { }
+                    return Done(null);
+                },
                 ["read"] = m => Done(Read(Str(m, "path"))),
                 ["pickOpen"] = m => Done(PickOpen(Str(m, "dir"))),
                 ["save"] = m => Done(Save(m)),
@@ -164,7 +189,7 @@ namespace Sustenido
                 ["attachImage"] = m => Done(AttachImage(m)),
                 ["pickImage"] = m => Done(PickImage(Str(m, "doc"))),
                 ["rename"] = m => Done(Rename(Str(m, "path"), Str(m, "name"))),
-                ["theme"] = m => { ApplyTheme((bool)m["dark"]); return Done(null); },
+                ["theme"] = m => { ApplyChrome((bool)m["dark"], Flag(m, "glass"), Str(m, "chrome")); return Done(null); },
                 ["emoji"] = m => { OpenEmojiPanel(); return Done(null); },
                 ["newWindow"] = m => { Process.Start(Application.ExecutablePath, "--new-window"); return Done(null); },
                 ["title"] = m => { Text = Str(m, "text"); return Done(null); },
@@ -176,23 +201,48 @@ namespace Sustenido
         }
 
         static Task<object> Done(object value) => Task.FromResult(value);
+        void Mark(string phase) => bootLog.Append(phase).Append(' ').Append(Boot.ElapsedMilliseconds).Append("ms  ");
+
+        static Dictionary<string, object> LoadSettings()
+        {
+            try
+            {
+                if (File.Exists(SettingsFile)) return Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(SettingsFile, Encoding.UTF8)) ?? new Dictionary<string, object>();
+            }
+            catch (Exception ex) when (ex is IOException || ex is ArgumentException || ex is InvalidOperationException) { }
+            return new Dictionary<string, object>();
+        }
         static string Str(Dictionary<string, object> m, string key) => m.TryGetValue(key, out var v) ? v as string : null;
         static bool Flag(Dictionary<string, object> m, string key) => m.TryGetValue(key, out var v) && v is bool b && b;
 
         async Task InitAsync()
         {
-            Directory.CreateDirectory(DataDir);
-            var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(DataDir, "WebView2"));
-            await web.EnsureCoreWebView2Async(env);
-            var core = web.CoreWebView2;
+            CoreWebView2 core;
+            try
+            {
+                var env = await EnvTask;
+                Mark("env");
+                await web.EnsureCoreWebView2Async(env);
+                Mark("webview");
+                core = web.CoreWebView2;
+                // Settings are injected before any page script runs: no round trip, no flash of the default theme.
+                await core.AddScriptToExecuteOnDocumentCreatedAsync("window.__sustenido={settings:" + settingsJson + "}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Não foi possível iniciar o componente de navegador (WebView2).\n\n" + ex.Message, "Sustenido", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.IsZoomControlEnabled = false; // the app zooms text itself, like Notepad
             core.Settings.IsGeneralAutofillEnabled = false;
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.SetVirtualHostNameToFolderMapping(AppHost, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web"), CoreWebView2HostResourceAccessKind.Deny);
+            core.AddWebResourceRequestedFilter($"https://{DocHost}/*", CoreWebView2WebResourceContext.All);
+            core.WebResourceRequested += OnDocResource;
             core.NavigationStarting += OnNavigationStarting;
-            core.NavigationCompleted += (s, e) => pageLoaded = true;
+            core.NavigationCompleted += (s, e) => { pageLoaded = true; Mark("page"); };
             core.NewWindowRequested += (s, e) => { e.Handled = true; OpenExternal(e.Uri); };
             core.PermissionRequested += (s, e) =>
             {
@@ -400,14 +450,53 @@ namespace Sustenido
 
         string MapFolder(string dir)
         {
-            if (string.IsNullOrEmpty(dir) || web.CoreWebView2 == null) return null;
-            if (!folderHosts.TryGetValue(dir, out var host))
+            if (string.IsNullOrEmpty(dir)) return null;
+            int i = docFolders.FindIndex(d => string.Equals(d, dir, StringComparison.OrdinalIgnoreCase));
+            if (i < 0) { docFolders.Add(dir); i = docFolders.Count - 1; }
+            return $"https://{DocHost}/{i}/";
+        }
+
+        // Serves a note's relative images/attachments. Paths are confined to the note's folder: a note cannot read
+        // files elsewhere on disk, and nothing served here can run (CSP), only be displayed.
+        void OnDocResource(object sender, CoreWebView2WebResourceRequestedEventArgs e)
+        {
+            var env = web.CoreWebView2.Environment;
+            try
             {
-                host = $"d{folderHosts.Count + 1}.sustenido";
-                web.CoreWebView2.SetVirtualHostNameToFolderMapping(host, dir, CoreWebView2HostResourceAccessKind.DenyCors);
-                folderHosts[dir] = host;
+                var segments = new Uri(e.Request.Uri).AbsolutePath.Split(new[] { '/' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                if (segments.Length == 2 && int.TryParse(segments[0], out var i) && i >= 0 && i < docFolders.Count)
+                {
+                    var root = Path.GetFullPath(docFolders[i]).TrimEnd('\\') + "\\";
+                    var file = Path.GetFullPath(Path.Combine(root, Uri.UnescapeDataString(segments[1]).Replace('/', '\\')));
+                    if (file.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(file))
+                    {
+                        e.Response = env.CreateWebResourceResponse(new MemoryStream(File.ReadAllBytes(file)), 200, "OK", "Content-Type: " + MimeOf(file));
+                        return;
+                    }
+                }
             }
-            return $"https://{host}/";
+            catch (Exception ex) when (ex is IOException || ex is UriFormatException || ex is ArgumentException || ex is UnauthorizedAccessException) { }
+            e.Response = env.CreateWebResourceResponse(null, 404, "Not Found", "");
+        }
+
+        static string MimeOf(string file)
+        {
+            switch (Path.GetExtension(file).ToLowerInvariant())
+            {
+                case ".png": return "image/png";
+                case ".jpg": case ".jpeg": return "image/jpeg";
+                case ".gif": return "image/gif";
+                case ".webp": return "image/webp";
+                case ".svg": return "image/svg+xml";
+                case ".bmp": return "image/bmp";
+                case ".avif": return "image/avif";
+                case ".mp4": return "video/mp4";
+                case ".webm": return "video/webm";
+                case ".mp3": return "audio/mpeg";
+                case ".wav": return "audio/wav";
+                case ".pdf": return "application/pdf";
+                default: return "application/octet-stream";
+            }
         }
 
         static bool SkipFolder(DirectoryInfo d) =>
@@ -637,29 +726,48 @@ namespace Sustenido
 
         Color SolidBackground() => dark ? Color.FromArgb(24, 22, 28) : Color.FromArgb(246, 241, 247);
 
-        void ApplyTheme(bool isDark)
+        /// <summary>Window frame follows the page: dark/light, acrylic on/off, and a title bar that is never the system gray.</summary>
+        /// <param name="chrome">The page's solid chrome color as "r,g,b", or null before the page reports it.</param>
+        void ApplyChrome(bool isDark, bool glassOn, string chrome)
         {
             dark = isDark;
-            if (!glass)
-            {
-                BackColor = SolidBackground();
-                web.DefaultBackgroundColor = BackColor;
-            }
+            glass = osGlass && glassOn;
+            var solid = ParseRgb(chrome) ?? SolidBackground();
+            BackColor = glass ? Color.Black : solid;
+            web.DefaultBackgroundColor = glass ? Color.Transparent : solid;
             if (!IsHandleCreated) return;
             int on = dark ? 1 : 0;
             DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref on, sizeof(int));
+            if (Environment.OSVersion.Version.Build < 22000) return;
+            int backdrop = glass ? DWMSBT_TRANSIENTWINDOW : DWMSBT_NONE;
+            DwmSetWindowAttribute(Handle, DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
+            // Title bar: transparent over the glass, or painted in the page's own chrome color.
+            int caption = glass ? DWMWA_COLOR_NONE : ColorRef(solid);
+            DwmSetWindowAttribute(Handle, DWMWA_CAPTION_COLOR, ref caption, sizeof(int));
+            int text = dark ? 0x00F2F2F2 : 0x001F1D1D;
+            DwmSetWindowAttribute(Handle, DWMWA_TEXT_COLOR, ref text, sizeof(int));
         }
+
+        static Color? ParseRgb(string rgb)
+        {
+            var parts = rgb?.Split(',');
+            if (parts?.Length != 3) return null;
+            try { return Color.FromArgb(int.Parse(parts[0]), int.Parse(parts[1]), int.Parse(parts[2])); }
+            catch (Exception ex) when (ex is FormatException || ex is ArgumentException) { return null; }
+        }
+
+        static int ColorRef(Color c) => c.R | (c.G << 8) | (c.B << 16);
 
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            ApplyTheme(dark);
-            if (!glass) return;
-            // Acrylic behind the whole window; the page paints its own translucent tint over it.
-            var margins = new MARGINS { Left = -1, Right = -1, Top = -1, Bottom = -1 };
-            DwmExtendFrameIntoClientArea(Handle, ref margins);
-            int backdrop = DWMSBT_TRANSIENTWINDOW;
-            DwmSetWindowAttribute(Handle, DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
+            if (osGlass)
+            {
+                // Acrylic behind the whole window; the page paints its own translucent tint over it.
+                var margins = new MARGINS { Left = -1, Right = -1, Top = -1, Bottom = -1 };
+                DwmExtendFrameIntoClientArea(Handle, ref margins);
+            }
+            ApplyChrome(dark, glass, null);
         }
 
         // Window and taskbar icon follow the accent color (icons\<accent>.ico ships next to the exe).
@@ -687,7 +795,9 @@ namespace Sustenido
 
         // ── Win32 ───────────────────────────────────────
 
-        const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20, DWMWA_SYSTEMBACKDROP_TYPE = 38, DWMSBT_TRANSIENTWINDOW = 3;
+        const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20, DWMWA_CAPTION_COLOR = 35, DWMWA_TEXT_COLOR = 36, DWMWA_SYSTEMBACKDROP_TYPE = 38;
+        const int DWMSBT_NONE = 1, DWMSBT_TRANSIENTWINDOW = 3;
+        const int DWMWA_COLOR_NONE = unchecked((int)0xFFFFFFFE);
         const byte VK_LWIN = 0x5B, VK_OEM_PERIOD = 0xBE;
         const uint KEYEVENTF_KEYUP = 2;
         const uint FOS_PICKFOLDERS = 0x20, FOS_FORCEFILESYSTEM = 0x40, FOS_PATHMUSTEXIST = 0x800;

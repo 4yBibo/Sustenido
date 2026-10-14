@@ -23,13 +23,32 @@ async function renderMermaid(code, dark) {
   }
 }
 
-export async function fillDiagram(el, code, dark) {
-  try {
-    el.innerHTML = await renderMermaid(code, dark);
-  } catch (err) {
-    el.classList.add('diagram-error');
-    el.textContent = 'Diagrama Mermaid inválido: ' + (err?.message ?? err);
+// Diagrams render only once scrolled into view, so a note with a diagram far down the page
+// opens as fast and as light as a plain one (Mermaid + its layout engine are ~4.5 MB of JS).
+const pending = new WeakMap();
+const visible = new IntersectionObserver(entries => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    visible.unobserve(e.target);
+    const job = pending.get(e.target);
+    pending.delete(e.target);
+    job?.();
   }
+}, { rootMargin: '400px' });
+
+export function fillDiagram(el, code, dark) {
+  return new Promise(resolve => {
+    pending.set(el, async () => {
+      try {
+        el.innerHTML = await renderMermaid(code, dark);
+      } catch (err) {
+        el.classList.add('diagram-error');
+        el.textContent = 'Diagrama Mermaid inválido: ' + (err?.message ?? err);
+      }
+      resolve();
+    });
+    visible.observe(el);
+  });
 }
 
 /** Replaces ```mermaid blocks inside rendered HTML; resolves when every diagram is drawn. */

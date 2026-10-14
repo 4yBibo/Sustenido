@@ -2,11 +2,12 @@ import { Text } from '@codemirror/state';
 import { redo, selectAll, undo } from '@codemirror/commands';
 import { findNext, findPrevious, gotoLine, openSearchPanel } from '@codemirror/search';
 import { call, on } from './bridge.js';
-import { createEditor, currentBlock, dateTime, insertLink, insertText, setBlock, setTextColor, toggleInline } from './editor.js';
-import { TEXT_COLORS } from './markdown.js';
+import { EditorView } from '@codemirror/view';
+import { createEditor, currentBlock, dateTime, insertLink, insertText, outline, setBlock, setHighlight, setTextColor, stats, toggleInline } from './editor.js';
+import { MARK_COLORS, TEXT_COLORS } from './markdown.js';
 import WELCOME from './welcome.md';
 import { createSidebar, isInside } from './sidebar.js';
-import { applySettings, isDark, onSettingsChange, openSettings, setGlassAvailable, settings, update } from './settings.js';
+import { applySettings, flushSettings, isDark, isGlass, onSettingsChange, openSettings, setGlassAvailable, settings, update } from './settings.js';
 import { renderHtml, renderProperties, splitFrontmatter } from './properties.js';
 import { fillDiagram, hydrateDiagrams } from './diagrams.js';
 import { highlightBlocks } from './highlight.js';
@@ -51,12 +52,13 @@ const editor = createEditor({
     const dirty = !editor.view.state.doc.eq(active.savedDoc);
     if (dirty !== active.dirty) { active.dirty = dirty; renderTabs(); renderTitle(); }
     scheduleSession();
+    scheduleOutline();
   },
   onSelection: () => { if (active) { updateStatus(); queueBubble(); } },
   onImages: files => insertImages(files),
   onFiles: files => dropFiles(files),
 });
-editor.configure({ wrap: settings.wrap, spellcheck: settings.spellcheck });
+editor.configure({ wrap: settings.wrap, spellcheck: settings.spellcheck, autoPairMd: settings.autoPairMd, typewriter: settings.typewriter });
 window.sustenido = { text: () => editor.view.state.doc.toString() };
 
 function countWords(doc) {
@@ -75,7 +77,7 @@ let tabSeq = 0;
 function makeTab({ path = null, name = 'Sem título', dir = null, base = null, text = '', saved = text, encoding = 'utf-8', eol = 'crlf' } = {}) {
   const savedDoc = Text.of(saved.split('\n'));
   const state = editor.createState(text);
-  return { id: ++tabSeq, path, name, dir, base, encoding, eol, state, savedDoc, dirty: !state.doc.eq(savedDoc), back: [], forward: [], scroll: 0 };
+  return { id: ++tabSeq, path, name, dir, base, encoding, eol, state, savedDoc, dirty: !state.doc.eq(savedDoc), scroll: 0 };
 }
 
 const stateOf = tab => (tab === active ? editor.view.state : tab.state);
@@ -88,14 +90,16 @@ function activate(tab, { focus = false } = {}) {
     active.scroll = scroller.scrollTop;
   }
   active = tab;
-  editor.view.setState(tab.state);
-  editor.configure({ wrap: settings.wrap, spellcheck: settings.spellcheck });
+  recordNav(tab);
+  document.querySelector('base').href = tab.base ?? 'https://sustenido.app/'; // before anything renders relative images
+  editor.setState(tab.state);
+  editor.configure({ wrap: settings.wrap, spellcheck: settings.spellcheck, autoPairMd: settings.autoPairMd, typewriter: settings.typewriter });
   wordCount = countWords(tab.state.doc);
-  document.querySelector('base').href = tab.base ?? 'https://sustenido.app/';
   renderTabs();
   renderChrome();
   renderMode();
   updateStatus();
+  renderOutline();
   followInSidebar(tab);
   requestAnimationFrame(() => { scroller.scrollTop = tab.scroll; });
   if (focus && settings.mode === 'edit') editor.view.focus();
@@ -136,24 +140,51 @@ async function openPath(path) {
   if (tab) place(tab);
 }
 
-/** Obsidian-style navigation inside the current tab, with back/forward history. */
-async function openInPlace(path, mode = 'push') {
+/** Obsidian-style navigation: a link opens inside the current tab (unless it has unsaved edits). */
+async function openInPlace(path) {
   const current = active;
   if (current.dirty) return openPath(path); // never discard edits: unsaved notes keep their tab
   const existing = tabs.find(t => samePath(t.path, path));
   if (existing && existing !== current) return activate(existing, { focus: true });
   const tab = await readDoc(path);
-  if (!tab) return;
-  tab.back = [...current.back];
-  tab.forward = [...current.forward];
-  if (mode === 'push') { if (current.path) tab.back.push(current.path); tab.forward = []; }
-  if (mode === 'back') { tab.back.pop(); if (current.path) tab.forward.push(current.path); }
-  if (mode === 'forward') { tab.forward.pop(); if (current.path) tab.back.push(current.path); }
-  place(tab, current);
+  if (tab) place(tab, current);
 }
 
-const goBack = () => active.back.length && openInPlace(active.back.at(-1), 'back');
-const goForward = () => active.forward.length && openInPlace(active.forward.at(-1), 'forward');
+// Browser-like history of visited notes across tabs (Alt+← / Alt+→): a closed note is reopened.
+const nav = { list: [], idx: -1, busy: false };
+function recordNav(tab) {
+  if (nav.busy || nav.list[nav.idx]?.id === tab.id) return;
+  nav.list = nav.list.slice(0, nav.idx + 1);
+  nav.list.push({ id: tab.id, path: tab.path });
+  nav.idx = nav.list.length - 1;
+}
+const navTarget = e => tabs.find(t => t.id === e.id) ?? (e.path ? tabs.find(t => samePath(t.path, e.path)) : null);
+function canNav(step) {
+  for (let i = nav.idx + step; i >= 0 && i < nav.list.length; i += step) if (navTarget(nav.list[i]) || nav.list[i].path) return true;
+  return false;
+}
+async function goNav(step) {
+  for (let i = nav.idx + step; i >= 0 && i < nav.list.length; i += step) {
+    const e = nav.list[i];
+    const open = navTarget(e);
+    if (!open && !e.path) continue;
+    nav.busy = true;
+    try {
+      if (open) activate(open, { focus: true });
+      else {
+        const tab = await readDoc(e.path);
+        if (!tab) continue;
+        e.id = tab.id;
+        place(tab);
+      }
+      nav.idx = i;
+    } finally { nav.busy = false; }
+    renderTabs();
+    return;
+  }
+}
+const goBack = () => goNav(-1);
+const goForward = () => goNav(1);
 
 async function pickOpen() {
   const paths = await call('pickOpen', { dir: active?.dir ?? sidebar.root ?? '' }).catch(() => null);
@@ -190,9 +221,11 @@ async function save(tab = active, { saveAs = false } = {}) {
   if (!r) return false;
   const isNew = !samePath(tab.path, r.path);
   Object.assign(tab, { path: r.path, name: r.name, dir: r.dir, base: r.base, encoding: r.encoding, savedDoc: doc });
+  for (const e of nav.list) if (e.id === tab.id) e.path = tab.path;
   tab.dirty = !stateOf(tab).doc.eq(doc); // typing during the save keeps the tab dirty
   if (tab === active) {
     document.querySelector('base').href = tab.base;
+    editor.refresh(); // relative images now resolve against the saved location
     renderChrome();
     updateStatus();
     if (isNew) followInSidebar(tab);
@@ -245,7 +278,7 @@ async function closeWindow() {
   if (!(primary && settings.session)) {
     for (const t of [...tabs]) if (!(await settleTab(t))) return;
   }
-  await persistSession();
+  await Promise.all([persistSession(), flushSettings()]);
   call('closeWindow');
 }
 
@@ -256,7 +289,7 @@ function snapshot() {
   return JSON.stringify({
     version: 1,
     active: tabs.indexOf(active),
-    tabs: tabs.map(t => ({
+    tabs: tabs.filter(t => t.path || t.dirty).map(t => ({ // a clean unsaved tab (the welcome note) is not worth keeping
       path: t.path, name: t.name, dir: t.dir, encoding: t.encoding, eol: t.eol,
       text: t.dirty || !t.path ? stateOf(t).doc.toString() : null, // unsaved work is kept, clean files are re-read
     })),
@@ -278,9 +311,11 @@ async function persistSession() {
 async function restore(json) {
   let session;
   try { session = JSON.parse(json); } catch { return 0; }
-  for (const t of session?.tabs ?? []) {
+  const saved = session?.tabs ?? [];
+  const docs = await Promise.all(saved.map(t => (t.path ? call('read', { path: t.path }).catch(() => null) : null))); // all files at once
+  saved.forEach((t, i) => {
+    const doc = docs[i];
     if (t.path) {
-      const doc = await call('read', { path: t.path }).catch(() => null);
       if (doc?.kind === 'doc') {
         tabs.push(makeTab({ ...doc, text: t.text ?? doc.text, saved: doc.text, ...(t.text != null && { encoding: t.encoding, eol: t.eol }) }));
       } else if (t.text != null) {
@@ -289,7 +324,7 @@ async function restore(json) {
     } else {
       tabs.push(makeTab({ name: t.name, dir: t.dir, text: t.text ?? '', saved: '', encoding: t.encoding, eol: t.eol }));
     }
-  }
+  });
   return Math.max(0, Math.min(session?.active ?? 0, tabs.length - 1));
 }
 
@@ -312,10 +347,19 @@ function renderTabs() {
     tab.classList.toggle('dirty', t.dirty);
     return tab;
   }));
-  $('back').disabled = !active?.back.length;
-  $('forward').disabled = !active?.forward.length;
+  $('back').disabled = !canNav(-1);
+  $('forward').disabled = !canNav(1);
   renderTitle();
   strip.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  updateTabScroll();
+}
+
+// With many tabs the strip scrolls: arrows at both ends (like Notepad) and a list of every open tab.
+function updateTabScroll() {
+  const strip = $('tabs');
+  const overflow = strip.scrollWidth > strip.clientWidth + 1;
+  $('tabs-prev').hidden = $('tabs-next').hidden = !overflow;
+  $('tabs-list').hidden = tabs.length < 2;
 }
 
 let titleTimer;
@@ -361,6 +405,50 @@ function setMode(mode) {
   if (mode === 'edit') editor.view.focus();
 }
 
+// ── Outline (headings panel) ────────────────────────
+
+let outlineTimer;
+function renderOutline() {
+  if (!settings.outline) return;
+  const list = $('outline');
+  const items = outline(editor.view.state);
+  list.replaceChildren(...items.map((it, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'node outline-item';
+    b.style.setProperty('--depth', it.level - 1);
+    b.dataset.index = i;
+    b.dataset.pos = it.pos;
+    b.title = it.text;
+    b.innerHTML = '<span class="label"></span>';
+    b.querySelector('.label').textContent = it.text;
+    return b;
+  }));
+  if (!items.length) {
+    const p = document.createElement('p');
+    p.className = 'tree-empty';
+    p.textContent = 'Nenhum título nesta nota. Use # Título para criar seções.';
+    list.replaceChildren(p);
+  }
+}
+const scheduleOutline = () => { clearTimeout(outlineTimer); outlineTimer = setTimeout(renderOutline, 250); };
+
+function jumpToHeading(index, pos) {
+  if (settings.mode === 'read') {
+    view.querySelectorAll('h1, h2, h3, h4, h5, h6')[index]?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    return;
+  }
+  editor.view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: 24 }) });
+  editor.view.focus();
+}
+
+function showSidebarView(name) {
+  for (const b of document.querySelectorAll('.side-tabs button')) b.setAttribute('aria-selected', String(b.dataset.view === name));
+  $('tree').hidden = name !== 'tree';
+  $('outline').hidden = name !== 'outline';
+  if (name === 'outline') renderOutline();
+}
+
 const toggleMode = () => setMode(settings.mode === 'read' ? 'edit' : 'read');
 
 function updateStatus() {
@@ -370,6 +458,8 @@ function updateStatus() {
   const selected = st.selection.ranges.reduce((n, r) => n + r.to - r.from, 0);
   $('st-pos').textContent = `Ln ${num.format(line.number)}, Col ${num.format(sel.head - line.from + 1)}`;
   $('st-words').textContent = `${num.format(wordCount)} ${wordCount === 1 ? 'palavra' : 'palavras'}`;
+  const minutes = Math.max(1, Math.round(wordCount / 200));
+  $('st-words').title = `Cerca de ${minutes} min de leitura — clique para detalhes`;
   $('st-chars').textContent = selected
     ? `${num.format(selected)} de ${num.format(st.doc.length)} caracteres`
     : `${num.format(st.doc.length)} caracteres`;
@@ -651,7 +741,11 @@ const MENUS = {
   ],
   view: () => [
     { label: 'Modo leitura', kbd: 'Ctrl+E', checked: settings.mode === 'read', run: toggleMode },
+    { label: 'Modo foco', kbd: 'F8', checked: settings.focus, run: () => update({ focus: !settings.focus }) },
+    { label: 'Máquina de escrever', kbd: 'F9', checked: settings.typewriter, run: () => update({ typewriter: !settings.typewriter }) },
+    '-',
     { label: 'Barra lateral', kbd: 'Ctrl+\\', checked: settings.sidebar, run: toggleSidebar },
+    { label: 'Estrutura da nota', kbd: 'Ctrl+Shift+O', checked: settings.outline, run: toggleOutline },
     { label: 'Barra de status', checked: settings.statusBar, run: () => update({ statusBar: !settings.statusBar }) },
     { label: 'Quebra automática de linha', checked: settings.wrap, run: () => update({ wrap: !settings.wrap }) },
     '-',
@@ -672,17 +766,42 @@ const MENUS = {
   block: () => Object.entries({ p: 'Parágrafo', h1: 'Título 1', h2: 'Título 2', h3: 'Título 3', quote: 'Citação', bullet: 'Lista', number: 'Lista numerada', task: 'Lista de tarefas' })
     .map(([kind, label]) => ({ label, checked: currentBlock(editor.view.state) === kind, run: () => setBlock(editor.view, kind) })),
   color: () => [
-    { label: 'Cor padrão', run: () => setTextColor(editor.view, null) },
+    { label: 'Cor padrão do texto', run: () => setTextColor(editor.view, null) },
     '-',
-    ...TEXT_COLORS.map(c => ({ label: c.name, color: c.id, run: () => { applyColor(c.id); } })),
+    ...TEXT_COLORS.map(c => ({ label: c.name, color: c.id, checked: c.id === lastColor, run: () => applyColor(c.id) })),
   ],
+  mark: () => [
+    { label: 'Cor do tema', checked: lastMark === null, run: () => applyMark(null) },
+    '-',
+    ...MARK_COLORS.map(c => ({ label: c.name, color: c.id, checked: c.id === lastMark, run: () => applyMark(c.id) })),
+  ],
+  tabs: () => tabs.map(t => ({ label: t.name + (t.dirty ? ' ●' : ''), checked: t === active, run: () => activate(t, { focus: true }) })),
+  counts: () => {
+    const s = stats(editor.view.state);
+    const row = (label, value) => ({ label, kbd: num.format(value), run: () => {} });
+    return [row('Palavras', s.words), row('Caracteres', s.chars), row('Caracteres sem espaços', s.charsNoSpace), row('Linhas', s.lines), row('Parágrafos', s.paragraphs), row('Minutos de leitura', s.minutes)];
+  },
   eol: () => EOLS.map(e => ({ label: e.name, checked: active.eol === e.id, run: () => setFormat({ eol: e.id }) })),
   encoding: () => ENCODINGS.map(e => ({ label: e.name, checked: active.encoding === e.id, run: () => setFormat({ encoding: e.id }) })),
 };
 
+// The main buttons re-apply the last color used; the chevron beside them opens the palette.
+let lastColor = '#e5484d';
+let lastMark = null; // null = the theme/default highlight (==texto==)
 function applyColor(color) {
   setTextColor(editor.view, color);
+  lastColor = color;
   document.documentElement.style.setProperty('--last-color', color);
+}
+function applyMark(color) {
+  setHighlight(editor.view, color);
+  lastMark = color;
+  document.documentElement.style.setProperty('--last-mark', color ?? 'var(--mark)');
+}
+function toggleOutline() {
+  update({ outline: !settings.outline });
+  if (settings.outline && !settings.sidebar) toggleSidebar();
+  showSidebarView(settings.outline ? 'outline' : 'tree');
 }
 
 function setFormat(patch) {
@@ -799,7 +918,8 @@ bubble.addEventListener('click', e => {
     bold: () => toggleInline(v, '**'),
     italic: () => toggleInline(v, '*'),
     strike: () => toggleInline(v, '~~'),
-    mark: () => toggleInline(v, '=='),
+    mark: () => applyMark(lastMark),
+    color: () => applyColor(lastColor),
     code: () => toggleInline(v, '`'),
     link: () => insertLink(v),
     emoji: openEmoji,
@@ -900,6 +1020,7 @@ const SHORTCUTS = {
   'C+h': () => withEditor(openSearchPanel), 'C+g': () => withEditor(gotoLine),
   '+f5': () => withEditor(v => insertText(v, dateTime())), 'C+r': () => {},
   'CS+c': copyAll, 'A+arrowleft': goBack, 'A+arrowright': goForward,
+  '+f8': () => update({ focus: !settings.focus }), '+f9': () => update({ typewriter: !settings.typewriter }), 'CS+o': toggleOutline,
   'C+b': () => editing() ? toggleInline(editor.view, '**') : false,
   'C+i': () => editing() ? toggleInline(editor.view, '*') : false,
   'C+k': () => editing() ? insertLink(editor.view) : false,
@@ -929,6 +1050,16 @@ document.querySelector('.modes').addEventListener('click', e => {
 });
 $('back').addEventListener('click', goBack);
 $('forward').addEventListener('click', goForward);
+$('tabs-prev').addEventListener('click', () => $('tabs').scrollBy({ left: -220, behavior: 'smooth' }));
+$('tabs-next').addEventListener('click', () => $('tabs').scrollBy({ left: 220, behavior: 'smooth' }));
+window.addEventListener('resize', updateTabScroll);
+$('outline').addEventListener('click', e => { const b = e.target.closest('.outline-item'); if (b) jumpToHeading(+b.dataset.index, +b.dataset.pos); });
+document.querySelector('.side-tabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-view]');
+  if (!b) return;
+  update({ outline: b.dataset.view === 'outline' });
+  showSidebarView(b.dataset.view);
+});
 $('new-tab').addEventListener('click', newTab);
 $('new-note').addEventListener('click', () => { place(makeTab({ dir: sidebar.root ?? active?.dir })); setMode('edit'); });
 $('side-toggle').addEventListener('click', toggleSidebar);
@@ -952,17 +1083,45 @@ function toast(message) {
 
 // ── Settings reactions ──────────────────────────────
 
+// The native title bar is painted in the page's exact chrome color; the page resolves it (light-dark, color-mix).
+function chromeRgb() {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;visibility:hidden;background:var(--chrome-solid)';
+  document.body.append(probe);
+  const css = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  const ctx = document.createElement('canvas').getContext('2d');
+  ctx.fillStyle = css;
+  ctx.fillRect(0, 0, 1, 1);
+  return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).join(',');
+}
+const syncChrome = () => call('theme', { dark: isDark(), glass: isGlass(), chrome: chromeRgb() });
+
 onSettingsChange(patch => {
+  if ('theme' in patch || 'accent' in patch || 'glass' in patch) syncChrome();
   if ('theme' in patch) {
-    call('theme', { dark: isDark() });
     editor.refresh();
     if (settings.mode === 'read') renderRead();
   }
-  if ('wrap' in patch || 'spellcheck' in patch) editor.configure({ wrap: settings.wrap, spellcheck: settings.spellcheck });
+  if ('wrap' in patch || 'spellcheck' in patch || 'autoPairMd' in patch || 'typewriter' in patch) {
+    editor.configure({ wrap: settings.wrap, spellcheck: settings.spellcheck, autoPairMd: settings.autoPairMd, typewriter: settings.typewriter });
+  }
+  if ('focus' in patch || 'typewriter' in patch) {
+    applyWritingModes();
+    toast(patch.focus !== undefined ? (settings.focus ? 'Modo foco ligado' : 'Modo foco desligado') : (settings.typewriter ? 'Máquina de escrever ligada' : 'Máquina de escrever desligada'));
+  }
   if ('session' in patch) persistSession();
   if ('accent' in patch) applyIcon();
   if ('textSize' in patch || 'font' in patch || 'zoom' in patch) queueBubble();
 });
+
+function applyWritingModes() {
+  document.body.classList.toggle('focus-mode', settings.focus);
+  document.body.classList.toggle('typewriter', settings.typewriter);
+  if (settings.typewriter && settings.mode === 'edit') {
+    editor.view.dispatch({ effects: EditorView.scrollIntoView(editor.view.state.selection.main.head, { y: 'center' }) });
+  }
+}
 
 /** The app icon follows the accent: window/taskbar (host) and the in-app marks. */
 function applyIcon() {
@@ -984,10 +1143,12 @@ on('closing', () => {
 
 (async () => {
   document.body.classList.toggle('no-sidebar', !settings.sidebar);
+  applyWritingModes();
+  showSidebarView(settings.outline ? 'outline' : 'tree');
   const init = await call('init');
   primary = init.primary;
   setGlassAvailable(init.glass);
-  call('theme', { dark: isDark() });
+  syncChrome();
   applyIcon();
   if (settings.root) sidebar.setRoot(settings.root);
   const restoredIndex = primary && settings.session && init.session ? await restore(init.session) : 0;
@@ -1000,4 +1161,5 @@ on('closing', () => {
   }
   if (!tabs.length) place(makeTab({ dir: settings.root }));
   document.body.classList.add('ready');
+  call('ready', { js: Math.round(performance.now()) }); // startup timing → %LOCALAPPDATA%\Sustenido\startup.log
 })();

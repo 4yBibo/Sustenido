@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- net48 ships with every Windows 10/11 and is serviced by Windows Update: no runtime to install or expire. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Sustenido</AssemblyName>
+    <RootNamespace>Sustenido</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>sustenido.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <Product>Sustenido</Product>
+    <!-- AssemblyTitle becomes the file description Windows shows in "Open with" and Task Manager. -->
+    <AssemblyTitle>Sustenido - Edição Markdown Visual</AssemblyTitle>
+    <Description>Sustenido - Edição Markdown Visual</Description>
+    <DefaultItemExcludes>$(DefaultItemExcludes);node_modules/**;src/**;test/**;web/**;bin/**;obj/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!-- The web UI is bundled by esbuild; build it first so a plain `dotnet build` is always complete. -->
+  <Target Name="BuildWeb" BeforeTargets="BeforeBuild">
+    <Exec Command="npm ci --no-audit --no-fund" Condition="!Exists('node_modules')" />
+    <Exec Command="npm run build" />
+    <ItemGroup>
+      <!-- Globbed after the bundle exists, so hashed chunk names are always current. -->
+      <None Include="web\**" CopyToOutputDirectory="PreserveNewest" />
+      <None Include="icons\*.ico" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+
+</Project>

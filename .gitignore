@@ -1,0 +1,15 @@
+# Regenerable — node_modules, web/dist, bin and obj are local junctions to D:\Dev\Sustenido
+node_modules/
+web/dist/
+bin/
+obj/
+*.user
+.vs/
+
+# Downloaded master art (large); icons are generated from it by tools/make-icons.ps1
+assets/icon-grid.png
+
+# Local agent tooling
+.claude/
+.agents/
+skills-lock.json

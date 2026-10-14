@@ -1,0 +1,234 @@
+// CodeMirror setup (Live Preview, search, Notepad keys) and Markdown formatting commands.
+import { Compartment, EditorSelection, EditorState, Prec } from '@codemirror/state';
+import { EditorView, drawSelection, dropCursor, highlightSpecialChars, keymap, placeholder } from '@codemirror/view';
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { gotoLine, highlightSelectionMatches, openSearchPanel, search, searchKeymap } from '@codemirror/search';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { languages } from '@codemirror/language-data';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { classHighlighter, tags } from '@lezer/highlight';
+import { Highlight, livePreview, refreshPreview } from './livepreview.js';
+
+const PHRASES = {
+  Find: 'Localizar', Replace: 'Substituir', next: 'próximo', previous: 'anterior', all: 'todos',
+  'match case': 'Aa', regexp: '.*', 'by word': 'palavra inteira', replace: 'substituir',
+  'replace all': 'substituir tudo', close: 'fechar', 'current match': 'resultado atual',
+  'replaced $ matches': '$ substituições', 'replaced match on line $': 'substituído na linha $',
+  'on line': 'na linha', 'Go to line': 'Ir para a linha', go: 'ir',
+};
+
+export function createEditor({ parent, preview, onDocChange, onSelection, onFiles, onImages }) {
+  const wrap = new Compartment();
+  const spell = new Compartment();
+  const config = { wrap: true, spellcheck: true };
+
+  const base = [
+    history(),
+    drawSelection(),
+    dropCursor(),
+    highlightSpecialChars(),
+    EditorState.allowMultipleSelections.of(true),
+    EditorState.phrases.of(PHRASES),
+    search({ top: true }),
+    highlightSelectionMatches(),
+    // Notepad bindings win over CodeMirror's defaults (Ctrl+G is "go to line", not "find next").
+    Prec.high(keymap.of([
+      { key: 'Mod-h', run: openSearchPanel },
+      { key: 'Mod-g', run: gotoLine },
+    ])),
+    keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+    markdown({ base: markdownLanguage, codeLanguages: languages, extensions: [Highlight] }),
+    syntaxHighlighting(classHighlighter),
+    syntaxHighlighting(HighlightStyle.define([{ tag: tags.processingInstruction, class: 'cm-lp-markup' }])),
+    livePreview(preview),
+    placeholder('Comece a escrever…'),
+    EditorView.updateListener.of(u => {
+      if (u.docChanged) onDocChange(u);
+      if (u.docChanged || u.selectionSet || u.focusChanged || u.viewportChanged) onSelection(u);
+    }),
+    EditorView.domEventHandlers({
+      paste(e) {
+        const images = [...(e.clipboardData?.files ?? [])].filter(f => f.type.startsWith('image/'));
+        if (!images.length) return false;
+        e.preventDefault();
+        onImages(images);
+        return true;
+      },
+      drop(e, view) {
+        const files = [...(e.dataTransfer?.files ?? [])];
+        if (!files.length) return false;
+        e.preventDefault();
+        const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+        if (pos != null) view.dispatch({ selection: { anchor: pos } });
+        onFiles(files);
+        return true;
+      },
+    }),
+    EditorView.theme({
+      '&': { color: 'var(--fg)', backgroundColor: 'transparent' },
+      '&.cm-focused': { outline: 'none' },
+      '.cm-scroller': { fontFamily: 'var(--font-body)', lineHeight: '1.75', overflow: 'visible' },
+      '.cm-content': { padding: '0 0 40vh', caretColor: 'var(--accent)' },
+      '.cm-line': { padding: '0' },
+      '.cm-cursor, .cm-dropCursor': { borderLeft: '2px solid var(--accent)' },
+      '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
+        { backgroundColor: 'var(--accent-soft)' },
+      '.cm-selectionMatch': { backgroundColor: 'color-mix(in srgb, var(--accent) 10%, transparent)' },
+      '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, #ffcc00 40%, transparent)', borderRadius: '3px' },
+      '.cm-searchMatch-selected': { backgroundColor: 'color-mix(in srgb, #ff9500 55%, transparent)' },
+      '.cm-placeholder': { color: 'var(--muted)' },
+    }),
+  ];
+
+  const dynamic = () => [
+    wrap.of(config.wrap ? EditorView.lineWrapping : []),
+    spell.of(EditorView.contentAttributes.of({ spellcheck: String(config.spellcheck), 'aria-label': 'Editor de Markdown' })),
+  ];
+
+  const view = new EditorView({ parent, state: EditorState.create({ extensions: [base, dynamic()] }) });
+
+  return {
+    view,
+    createState: doc => EditorState.create({ doc, extensions: [base, dynamic()] }),
+    /** Re-applies wrap/spellcheck — also needed after swapping in another tab's state. */
+    configure(next = {}) {
+      Object.assign(config, next);
+      view.dispatch({
+        effects: [
+          wrap.reconfigure(config.wrap ? EditorView.lineWrapping : []),
+          spell.reconfigure(EditorView.contentAttributes.of({ spellcheck: String(config.spellcheck), 'aria-label': 'Editor de Markdown' })),
+        ],
+      });
+    },
+    refresh: () => view.dispatch({ effects: refreshPreview.of(null) }),
+  };
+}
+
+// ── Formatting commands ─────────────────────────────
+
+/** Wraps or unwraps each selection with an inline marker (**, *, ~~, ==, `). */
+export function toggleInline(view, mark) {
+  const { state } = view;
+  const n = mark.length;
+  view.dispatch(state.changeByRange(range => {
+    const before = state.sliceDoc(range.from - n, range.from);
+    const after = state.sliceDoc(range.to, range.to + n);
+    if (before === mark && after === mark) {
+      return {
+        changes: [{ from: range.from - n, to: range.from }, { from: range.to, to: range.to + n }],
+        range: EditorSelection.range(range.from - n, range.to - n),
+      };
+    }
+    const text = state.sliceDoc(range.from, range.to);
+    if (text.length >= 2 * n && text.startsWith(mark) && text.endsWith(mark)) {
+      return {
+        changes: { from: range.from, to: range.to, insert: text.slice(n, -n) },
+        range: EditorSelection.range(range.from, range.to - 2 * n),
+      };
+    }
+    return {
+      changes: [{ from: range.from, insert: mark }, { from: range.to, insert: mark }],
+      range: EditorSelection.range(range.from + n, range.to + n),
+    };
+  }), { userEvent: 'input.format' });
+  view.focus();
+}
+
+const PREFIX = /^(\s*)(#{1,6} |> ?|[-*+] \[[ xX]\] |[-*+] |\d+[.)] )?/;
+const KINDS = {
+  p: { test: p => !p, make: () => '' },
+  h1: { test: p => p === '# ', make: () => '# ' },
+  h2: { test: p => p === '## ', make: () => '## ' },
+  h3: { test: p => p === '### ', make: () => '### ' },
+  quote: { test: p => /^> ?$/.test(p), make: () => '> ' },
+  bullet: { test: p => /^[-*+] $/.test(p), make: () => '- ' },
+  number: { test: p => /^\d+[.)] $/.test(p), make: i => `${i}. ` },
+  task: { test: p => /^[-*+] \[[ xX]\] $/.test(p), make: () => '- [ ] ' },
+};
+
+/** The block kind at the cursor, for the "Parágrafo ▾" label. */
+export function currentBlock(state) {
+  const prefix = PREFIX.exec(state.doc.lineAt(state.selection.main.head).text)[2] ?? '';
+  return Object.keys(KINDS).find(k => k !== 'p' && KINDS[k].test(prefix)) ?? 'p';
+}
+
+/** Turns every selected line into `kind`; applying the same kind again reverts to a paragraph. */
+export function setBlock(view, kind) {
+  const { state } = view;
+  const numbers = new Set();
+  for (const r of state.selection.ranges) {
+    for (let l = state.doc.lineAt(r.from).number; l <= state.doc.lineAt(r.to).number; l++) numbers.add(l);
+  }
+  const lines = [...numbers].sort((a, b) => a - b).map(n => state.doc.line(n));
+  const parsed = lines.map(line => PREFIX.exec(line.text));
+  const off = kind !== 'p' && parsed.every(m => KINDS[kind].test(m[2] ?? ''));
+  view.dispatch({
+    changes: lines.map((line, i) => {
+      const [, indent, prefix = ''] = parsed[i];
+      return { from: line.from + indent.length, to: line.from + indent.length + prefix.length, insert: off ? '' : KINDS[kind].make(i + 1) };
+    }),
+    userEvent: 'input.format',
+  });
+  view.focus();
+}
+
+const SPAN_OPEN = /<span style="color:\s*(?:#[0-9a-fA-F]{3,8}|[a-zA-Z]+);?">$/;
+
+/** Colors each selection (null removes the color). Re-coloring replaces the existing span instead of nesting. */
+export function setTextColor(view, color) {
+  const { state } = view;
+  view.dispatch(state.changeByRange(range => {
+    const line = state.doc.lineAt(range.from);
+    const before = state.sliceDoc(line.from, range.from);
+    const open = SPAN_OPEN.exec(before);
+    const closed = state.sliceDoc(range.to, range.to + 7) === '</span>';
+    const text = state.sliceDoc(range.from, range.to);
+    if (open && closed) {
+      const start = range.from - open[0].length;
+      const tag = color ? `<span style="color: ${color}">` : '';
+      return {
+        changes: [{ from: start, to: range.from, insert: tag }, { from: range.to, to: range.to + 7, insert: color ? '</span>' : '' }],
+        range: EditorSelection.range(start + tag.length, start + tag.length + text.length),
+      };
+    }
+    if (!color || range.empty) return { range };
+    const tag = `<span style="color: ${color}">`;
+    return {
+      changes: [{ from: range.from, insert: tag }, { from: range.to, insert: '</span>' }],
+      range: EditorSelection.range(range.from + tag.length, range.to + tag.length),
+    };
+  }), { userEvent: 'input.format' });
+  view.focus();
+}
+
+export function insertLink(view) {
+  const { state } = view;
+  view.dispatch(state.changeByRange(range => {
+    const text = state.sliceDoc(range.from, range.to);
+    if (/^https?:\/\/\S+$/.test(text)) {
+      return { changes: { from: range.from, to: range.to, insert: `[](${text})` }, range: EditorSelection.cursor(range.from + 1) };
+    }
+    const insert = `[${text}](url)`;
+    const urlFrom = range.from + text.length + 3;
+    return { changes: { from: range.from, to: range.to, insert }, range: EditorSelection.range(urlFrom, urlFrom + 3) };
+  }), { userEvent: 'input.format' });
+  view.focus();
+}
+
+/** Inserts text at the cursor; block snippets get their own lines. `cursor` = offset inside `text`. */
+export function insertText(view, text, { block = false, cursor = text.length } = {}) {
+  const { state } = view;
+  let { from, to } = state.selection.main;
+  let lead = '';
+  if (block) {
+    const line = state.doc.lineAt(to);
+    if (line.text.trim()) { from = to = line.to; lead = '\n\n'; }
+  }
+  view.dispatch({ changes: { from, to, insert: lead + text }, selection: { anchor: from + lead.length + cursor }, userEvent: 'input' });
+  view.focus();
+}
+
+export function dateTime() {
+  const now = new Date();
+  return `${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ${now.toLocaleDateString('pt-BR')}`;
+}

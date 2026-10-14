@@ -1,0 +1,22 @@
+[
+  { "id": "roxo", "name": "Roxo", "light": "#6b46e5", "dark": "#a990ff" },
+  { "id": "indigo", "name": "Índigo", "light": "#4f46e5", "dark": "#8b8dff" },
+  { "id": "azul", "name": "Azul", "light": "#0a66d6", "dark": "#4da3ff" },
+  { "id": "ceu", "name": "Céu", "light": "#0369a1", "dark": "#4cc3f5" },
+  { "id": "ciano", "name": "Ciano", "light": "#0e7490", "dark": "#22d3ee" },
+  { "id": "petroleo", "name": "Petróleo", "light": "#0f766e", "dark": "#2dd4bf" },
+  { "id": "menta", "name": "Menta", "light": "#047857", "dark": "#34d399" },
+  { "id": "verde", "name": "Verde", "light": "#15803d", "dark": "#4ade80" },
+  { "id": "lima", "name": "Lima", "light": "#4d7c0f", "dark": "#a3e635" },
+  { "id": "oliva", "name": "Oliva", "light": "#5f6b19", "dark": "#c7d36f" },
+  { "id": "amarelo", "name": "Amarelo", "light": "#a16207", "dark": "#facc15" },
+  { "id": "ambar", "name": "Âmbar", "light": "#b45309", "dark": "#fbbf24" },
+  { "id": "laranja", "name": "Laranja", "light": "#c2410c", "dark": "#fb923c" },
+  { "id": "coral", "name": "Coral", "light": "#c4402f", "dark": "#ff8a7a" },
+  { "id": "vermelho", "name": "Vermelho", "light": "#c81e1e", "dark": "#f87171" },
+  { "id": "framboesa", "name": "Framboesa", "light": "#be185d", "dark": "#f472b6" },
+  { "id": "rosa", "name": "Rosa", "light": "#c0267e", "dark": "#f9a8d4" },
+  { "id": "orquidea", "name": "Orquídea", "light": "#a21caf", "dark": "#e879f9" },
+  { "id": "marrom", "name": "Marrom", "light": "#8a5a32", "dark": "#d4a373" },
+  { "id": "grafite", "name": "Grafite", "light": "#4b5563", "dark": "#a1a1aa" }
+]

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="system">
+<head>
+<meta charset="utf-8">
+<!-- Notes are untrusted input: no script runs except the app's own bundle. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://sustenido.app; worker-src https://sustenido.app; style-src https://sustenido.app 'unsafe-inline'; font-src https://sustenido.app; connect-src https://sustenido.app; img-src * data: blob:; media-src *;">
+<base href="https://sustenido.app/">
+<title>Sustenido</title>
+<link rel="stylesheet" href="https://sustenido.app/style.css">
+<link rel="stylesheet" href="https://sustenido.app/dist/katex/katex.min.css">
+<script type="module" src="https://sustenido.app/dist/main.js"></script>
+</head>
+<body data-mode="edit">
+  <div class="app">
+    <!-- Glass chrome: window controls row -->
+    <div class="chrome-lead">
+      <button id="side-toggle" class="icon" type="button" title="Barra lateral (Ctrl+\)" aria-label="Alternar barra lateral">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.75" y="3.75" width="14.5" height="12.5" rx="3"/><path d="M7.75 3.75v12.5"/></svg>
+      </button>
+      <button id="back" class="icon" type="button" title="Voltar (Alt+←)" aria-label="Voltar"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12 5l-5 5 5 5"/></svg></button>
+      <button id="forward" class="icon" type="button" title="Avançar (Alt+→)" aria-label="Avançar"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5l5 5-5 5"/></svg></button>
+    </div>
+
+    <header class="chrome">
+      <div id="tabs" class="tabs" role="tablist" aria-label="Notas abertas"></div>
+      <button id="new-tab" class="icon" type="button" title="Nova aba (Ctrl+N)" aria-label="Nova aba"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg></button>
+      <nav class="menus" aria-label="Menu">
+        <button type="button" data-menu="file" aria-haspopup="menu" aria-expanded="false">Arquivo</button>
+        <button type="button" data-menu="edit" aria-haspopup="menu" aria-expanded="false">Editar</button>
+        <button type="button" data-menu="insert" aria-haspopup="menu" aria-expanded="false">Inserir</button>
+        <button type="button" data-menu="view" aria-haspopup="menu" aria-expanded="false">Exibir</button>
+      </nav>
+      <button id="settings-btn" class="icon" type="button" title="Configurações (Ctrl+,)" aria-label="Configurações">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8.6 2.75h2.8l.45 2.02 1.36.79 1.97-.63 1.4 2.42-1.53 1.4v1.5l1.53 1.4-1.4 2.42-1.97-.63-1.36.79-.45 2.02H8.6l-.45-2.02-1.36-.79-1.97.63-1.4-2.42 1.53-1.4v-1.5l-1.53-1.4 1.4-2.42 1.97.63 1.36-.79z"/><circle cx="10" cy="10" r="2.25"/></svg>
+      </button>
+    </header>
+
+    <aside class="sidebar" aria-label="Pasta de notas">
+      <div class="side-head">
+        <button id="workspace" class="workspace" type="button" title="Trocar a pasta de notas…" aria-label="Pasta de notas — clique para trocar">
+          <img id="app-mark" class="app-mark" src="https://sustenido.app/icons/roxo.png" alt="" draggable="false">
+          <span class="ws-text">
+            <span class="ws-caption">Pasta</span>
+            <span id="ws-name" class="ws-name">Sustenido</span>
+          </span>
+          <svg class="ws-swap" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 7.5l4-4 4 4M6 12.5l4 4 4-4"/></svg>
+        </button>
+        <button id="new-note" class="icon" type="button" title="Nova nota nesta pasta (Ctrl+N)" aria-label="Nova nota">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M11 3.5H6.25c-.97 0-1.75.78-1.75 1.75v9.5c0 .97.78 1.75 1.75 1.75h7.5c.97 0 1.75-.78 1.75-1.75V8"/><path d="M14.5 2.5v5M12 5h5"/></svg>
+        </button>
+        <button id="side-collapse" class="icon" type="button" title="Ocultar barra lateral (Ctrl+\)" aria-label="Ocultar barra lateral">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="3" class="fill-soft"/><path d="M8 3.5v13"/></svg>
+        </button>
+      </div>
+      <nav id="tree" class="tree" role="tree" aria-label="Notas"></nav>
+    </aside>
+
+    <main id="card" class="card">
+      <div class="card-head">
+        <div class="card-actions">
+          <div class="modes" role="radiogroup" aria-label="Modo">
+            <button type="button" role="radio" data-mode="read" aria-checked="false" title="Ler (Ctrl+E)">Ler</button>
+            <button type="button" role="radio" data-mode="edit" aria-checked="true" title="Editar (Ctrl+E)">Editar</button>
+          </div>
+          <button id="copy" class="icon" type="button" title="Copiar conteúdo (Ctrl+Shift+C)" aria-label="Copiar conteúdo">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9.5" height="9.5" rx="2.25"/><path d="M13 7V5.25c0-.97-.78-1.75-1.75-1.75h-6c-.97 0-1.75.78-1.75 1.75v6c0 .97.78 1.75 1.75 1.75H7"/></svg>
+          </button>
+          <button id="export" class="icon" type="button" title="Exportar" aria-label="Exportar" data-menu="export" aria-haspopup="menu" aria-expanded="false">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 12.5V3m0 0L6.5 6.5M10 3l3.5 3.5M4 11.5v3.25c0 .97.78 1.75 1.75 1.75h8.5c.97 0 1.75-.78 1.75-1.75V11.5"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="scroller" class="scroller">
+        <div class="page">
+          <nav id="crumbs" class="crumbs" aria-label="Caminho"></nav>
+          <h1 id="inline-title" class="inline-title" contenteditable="plaintext-only" spellcheck="false" aria-label="Título da nota — edite para renomear o arquivo" title="Clique para renomear a nota"></h1>
+          <article id="view" class="prose" aria-live="off"></article>
+          <div id="editor"></div>
+        </div>
+      </div>
+
+      <footer class="status" aria-label="Barra de status">
+        <span id="st-pos"></span>
+        <span id="st-words"></span>
+        <span id="st-chars"></span>
+        <span class="status-gap"></span>
+        <button id="st-zoom" type="button" title="Zoom do texto — clique para voltar a 100% (Ctrl+0)"></button>
+        <button id="st-eol" type="button" data-menu="eol" aria-haspopup="menu" aria-expanded="false" title="Quebra de linha — clique para alterar"></button>
+        <button id="st-enc" type="button" data-menu="encoding" aria-haspopup="menu" aria-expanded="false" title="Codificação — clique para alterar"></button>
+      </footer>
+    </main>
+  </div>
+
+  <div id="bubble" class="bubble" role="toolbar" aria-label="Formatação" hidden>
+    <button type="button" class="b-block" data-menu="block" aria-haspopup="menu" aria-expanded="false"><span id="b-block-label">Parágrafo</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg></button>
+    <span class="b-sep" aria-hidden="true"></span>
+    <button type="button" id="b-bold" data-cmd="bold" data-tip="Negrito" aria-label="Negrito (Ctrl+B)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6.5 4h4.25a3 3 0 0 1 0 6H6.5zm0 6h5a3 3 0 0 1 0 6h-5z"/></svg></button>
+    <button type="button" id="b-italic" data-cmd="italic" data-tip="Itálico" aria-label="Itálico (Ctrl+I)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8.5 4h6M5.5 16h6M11.5 4l-3 12"/></svg></button>
+    <button type="button" id="b-mark" data-cmd="mark" data-tip="Marca-texto" aria-label="Marca-texto (Ctrl+Shift+H)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M11.5 3.75l4.75 4.75-6.5 6.5H5v-4.75z"/><path d="M3.5 17h13" class="accent-stroke"/></svg></button>
+    <button type="button" id="b-color" class="b-color" data-menu="color" aria-haspopup="menu" aria-expanded="false" data-tip="Cor do texto" aria-label="Cor do texto"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 13.5L10 3.5l4 10M7.4 10h5.2"/></svg><span class="b-swatch" aria-hidden="true"></span></button>
+    <button type="button" id="b-strike" data-cmd="strike" data-tip="Tachado" aria-label="Tachado (Ctrl+Shift+X)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12M13.25 6.25c-.5-1.4-1.75-2.25-3.4-2.25-2 0-3.35 1.05-3.35 2.6 0 1.35 1 2.05 2.5 2.4m2.5 2.2c1.5.45 2.25 1.2 2.25 2.4 0 1.6-1.45 2.65-3.6 2.65-1.9 0-3.25-.9-3.7-2.4"/></svg></button>
+    <button type="button" id="b-code" data-cmd="code" data-tip="Código" aria-label="Código"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6l-4 4 4 4M13 6l4 4-4 4"/></svg></button>
+    <span class="b-sep" aria-hidden="true"></span>
+    <button type="button" data-cmd="link" data-tip="Link" aria-label="Link (Ctrl+K)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8.5 11.5a3.25 3.25 0 0 0 4.6 0l2.3-2.3a3.25 3.25 0 0 0-4.6-4.6l-.9.9M11.5 8.5a3.25 3.25 0 0 0-4.6 0l-2.3 2.3a3.25 3.25 0 0 0 4.6 4.6l.9-.9"/></svg></button>
+    <span class="b-sep" aria-hidden="true"></span>
+    <button type="button" data-cmd="emoji" data-tip="Emoji" aria-label="Emoji (Win+.)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M7 11.75c.7 1.1 1.75 1.75 3 1.75s2.3-.65 3-1.75"/><path d="M7.75 8h.01M12.25 8h.01" class="dot"/></svg></button>
+  </div>
+
+  <div id="popover" class="popover" role="menu" hidden></div>
+  <div id="drop" class="drop" hidden><div class="drop-card"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0l-3.5-3.5M10 13l3.5-3.5M4 14.5v.75c0 .97.78 1.75 1.75 1.75h8.5c.97 0 1.75-.78 1.75-1.75v-.75"/></svg><span>Solte para abrir</span><small>Markdown, texto, HTML ou PDF</small></div></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="print" class="print-sheet" aria-hidden="true"></div>
+  <dialog id="settings" class="settings" aria-label="Configurações"></dialog>
+</body>
+</html>

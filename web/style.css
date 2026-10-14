@@ -882,7 +882,8 @@ input.switch:checked::before { transform: translateX(17px); }
 
 @page { size: A4; }
 @media print {
-  :root { color-scheme: light; }
+  /* Always paper-white, whatever the theme: outranks :root[data-theme="dark"] and ignores the OS scheme. */
+  :root, :root[data-theme] { color-scheme: light; }
   html, body { height: auto; overflow: visible; background: #fff !important; }
   .app, .bubble, .popover, .toast, .drop, dialog { display: none !important; }
   .print-sheet { display: block; font-family: var(--font-body); font-size: 11pt; color: #3a3a3e; }

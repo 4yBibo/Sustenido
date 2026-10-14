@@ -274,9 +274,15 @@ async function closeTabs(keep) {
   scheduleSession();
 }
 
+// Always asks about unsaved notes. "Não" really discards: the session then keeps only what is on disk.
 async function closeWindow() {
-  if (!(primary && settings.session)) {
-    for (const t of [...tabs]) if (!(await settleTab(t))) return;
+  for (const t of [...tabs]) {
+    if (!t.dirty) continue;
+    activate(t);
+    const answer = await call('confirmClose', { name: t.name });
+    if (answer === 'cancel') return;
+    if (answer === 'save') { if (!(await save(t))) return; }
+    else t.discarded = true;
   }
   await Promise.all([persistSession(), flushSettings()]);
   call('closeWindow');
@@ -289,9 +295,10 @@ function snapshot() {
   return JSON.stringify({
     version: 1,
     active: tabs.indexOf(active),
-    tabs: tabs.filter(t => t.path || t.dirty).map(t => ({ // a clean unsaved tab (the welcome note) is not worth keeping
+    // Kept: files (re-read from disk) and unsaved work the user did not discard. A clean untitled tab is dropped.
+    tabs: tabs.filter(t => t.path || (t.dirty && !t.discarded)).map(t => ({
       path: t.path, name: t.name, dir: t.dir, encoding: t.encoding, eol: t.eol,
-      text: t.dirty || !t.path ? stateOf(t).doc.toString() : null, // unsaved work is kept, clean files are re-read
+      text: t.dirty && !t.discarded ? stateOf(t).doc.toString() : null,
     })),
   });
 }

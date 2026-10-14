@@ -9,6 +9,7 @@ import { languages } from '@codemirror/language-data';
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { classHighlighter, tags } from '@lezer/highlight';
 import { Highlight, livePreview, refreshPreview, setFocus } from './livepreview.js';
+import { FRONTMATTER } from './properties.js';
 
 const PHRASES = {
   Find: 'Localizar', Replace: 'Substituir', next: 'próximo', previous: 'anterior', all: 'todos',
@@ -294,8 +295,13 @@ export function setHighlight(view, color) {
 /** Headings of the document, for the outline panel. */
 export function outline(state) {
   const items = [];
+  // The frontmatter's closing "---" parses as a Setext underline; its lines are properties, not headings.
+  const fm = FRONTMATTER.exec(state.doc.sliceString(0, Math.min(state.doc.length, 20000)));
+  const start = fm ? fm[0].length : 0;
   syntaxTree(state).iterate({
+    from: start,
     enter(n) {
+      if (n.from < start) return;
       const m = /^(?:ATX|Setext)Heading(\d)$/.exec(n.name);
       if (!m) return;
       const line = state.doc.lineAt(n.from);
